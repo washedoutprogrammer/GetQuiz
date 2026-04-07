@@ -103,7 +103,7 @@ class AttemptStatus(str, enum.Enum):
     ABANDONED = "abandoned"
 
 class Attempt(SQLModel, table=True):
-    __tablename__ = "attempt"
+    __tablename__ = "attempts"
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     user_id: str = Field(foreign_key="users.id", index=True)
     quiz_id: uuid.UUID = Field(foreign_key="quizzes.id", index=True)
@@ -119,9 +119,9 @@ class Attempt(SQLModel, table=True):
     answers_history: List["UserAnswerHistory"] = Relationship(back_populates="attempt")
 
 class UserAnswerHistory(SQLModel, table=True):
-    __tablename__ = "user_answers_history"
+    __tablename__ = "user_answer_history"
     id: Optional[int] = Field(default=None, primary_key=True)
-    attempt_id: uuid.UUID = Field(foreign_key="attempt.id", index=True)
+    attempt_id: uuid.UUID = Field(foreign_key="attempts.id", index=True)
     question_id: int = Field(foreign_key="questions.id")
     option_id: int = Field(foreign_key="options.id")
 

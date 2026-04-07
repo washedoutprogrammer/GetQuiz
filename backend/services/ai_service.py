@@ -4,7 +4,7 @@ from core.config import settings
 from models.schemas import GeneratedQuizResponse
 
 OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_MODEL = "google/gemini-2.0-flash-001"
+OPENROUTER_MODEL = "arcee-ai/trinity-large-preview:free"
 
 async def generate_quiz_from_prompt(topic: str, count: int) -> dict:
     """
