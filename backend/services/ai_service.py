@@ -1,13 +1,10 @@
 import json
-import google.generativeai as genai
+import httpx
 from core.config import settings
 from models.schemas import GeneratedQuizResponse
 
-# Configure API Key for Google Generative AI
-genai.configure(api_key=settings.GEMINI_API_KEY)
-
-# Use the standard model widely supported across regions:
-model = genai.GenerativeModel('gemini-2.5-flash')
+OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_MODEL = "google/gemini-2.0-flash-001"
 
 async def generate_quiz_from_prompt(topic: str, count: int) -> dict:
     """
@@ -52,16 +49,26 @@ async def generate_quiz_from_prompt(topic: str, count: int) -> dict:
     }}
     """
 
+    payload = {
+        "model": OPENROUTER_MODEL,
+        "messages": [{"role": "user", "content": system_instruction}]
+    }
+    headers = {
+        "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+        "Content-Type": "application/json"
+    }
     try:
-        response = model.generate_content(system_instruction)
-        response_text = response.text.strip()
-        
-        # Falsesafe in case Gemini includes markdown tags anyway
+        async with httpx.AsyncClient() as client:
+            response = await client.post(OPENROUTER_ENDPOINT, json=payload, headers=headers, timeout=60)
+        response.raise_for_status()
+        response_text = response.json()["choices"][0]["message"]["content"].strip()
+
+        # Falsesafe in case model includes markdown tags anyway
         if response_text.startswith("```json"):
             response_text = response_text[7:]
         if response_text.endswith("```"):
             response_text = response_text[:-3]
-            
+
         return json.loads(response_text)
     except Exception as e:
-        return {"status": "error", "message": f"Gemini Error: {str(e)}"}
+        return {"status": "error", "message": f"OpenRouter Error: {str(e)}"}

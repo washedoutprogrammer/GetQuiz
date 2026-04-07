@@ -191,6 +191,101 @@
   color: var(--text-2);
 }
 
+/* ── Sidebar Recent Activity ── */
+.db-recent-section {
+  margin-top: 0.625rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+
+.db-recent-title {
+  font-size: 0.68rem;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin: 0 0 0.75rem 0.25rem;
+}
+
+.db-recent-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.db-recent-item {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.45rem 0.5rem;
+  border-radius: var(--radius-md);
+  transition: background var(--t-fast);
+  cursor: default;
+}
+
+.db-recent-item:hover {
+  background: var(--accent-soft);
+}
+
+.db-recent-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.db-recent-dot-attempt { background: var(--warn, #ffbe3d); }
+.db-recent-dot-created { background: var(--accent-2); }
+.db-recent-dot-edited  { background: var(--cold); }
+
+.db-recent-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.db-recent-label {
+  font-size: 0.775rem;
+  font-weight: 500;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.db-recent-meta {
+  font-size: 0.65rem;
+  font-family: var(--font-mono);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.db-recent-more {
+  display: block;
+  text-align: center;
+  margin-top: 0.75rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-family: var(--font-display);
+  color: var(--accent-2);
+  text-decoration: none;
+  transition: background var(--t-fast), border-color var(--t-fast), color var(--t-fast);
+}
+
+.db-recent-more:hover {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--accent-2);
+}
+
 /* ── Main Content Area ── */
 .db-main {
   flex: 1;

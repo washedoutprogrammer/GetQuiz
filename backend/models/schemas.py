@@ -3,6 +3,8 @@ from typing import List, Optional
 
 # --- REQUEST PAYLOAD FROM FRONTEND ---
 class GenerateQuizRequest(BaseModel):
+    # user_id will be populated by Clerk JWT later; defaults to 'anonymous' until auth is integrated
+    user_id: str = Field(default="anonymous", description="The Clerk User ID or local identifier")
     topic: str = Field(..., description="The quiz topic requested by the user")
     count: int = Field(default=5, ge=1, le=20, description="Number of questions (max 20)")
 
@@ -18,13 +20,14 @@ class Question(BaseModel):
     correct: Optional[bool] = Field(default=None, description="Only for 'tf' type, marks whether the statement is true or false")
 
 class GeneratedQuizResponse(BaseModel):
-    id: Optional[int] = None
+    id: Optional[str] = None # Changes from int to str/uuid
     createdAt: Optional[str] = None
     questionCount: Optional[int] = None
     title: str
     description: str
     tags: List[str]
     questions: List[Question]
+    difficulty: Optional[str] = "easy"
 
 class APIResponse(BaseModel):
     status: str = Field(..., description="'success' or 'error'")

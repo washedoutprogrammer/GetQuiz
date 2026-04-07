@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from core.config import settings
 from routers import quizzes
+from models.database import create_db_and_tables
 
 # Initialize FastAPI instance
 app = FastAPI(
@@ -9,6 +10,11 @@ app = FastAPI(
     version=settings.VERSION,
     description="Backend API to generate AI Quizzes"
 )
+
+# Startup event to initialize database
+@app.on_event("startup")
+def on_startup():
+    create_db_and_tables()
 
 # Configure CORS to allow frontend requests from different origins
 app.add_middleware(

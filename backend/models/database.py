@@ -1,0 +1,128 @@
+from sqlmodel import SQLModel, Field, Relationship, create_engine, Session
+from typing import List, Optional
+from datetime import datetime
+import uuid
+import enum
+import os
+from sqlalchemy import Column, Enum as SAEnum, Text
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Database Setup
+DATABASE_URL = os.getenv("DATABASE_URL")
+if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+    # Fix for newer SQLAlchemy version with Supabase/Heroku postgres URLs
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+engine = create_engine(DATABASE_URL) if DATABASE_URL else None
+
+def create_db_and_tables():
+    if engine:
+        SQLModel.metadata.create_all(engine)
+
+def get_session():
+    if engine is None:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=503, detail="DATABASE_URL not configured. Add it to backend/.env")
+    with Session(engine) as session:
+        yield session
+
+
+# --- MODELS ---
+
+class UserQuotas(SQLModel, table=True):
+    __tablename__ = "user_quotas"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: str = Field(foreign_key="users.id", index=True)
+    quota_remaining: int = Field(default=50)
+    reset_time: Optional[datetime] = Field(default=None)
+    
+    user: "Users" = Relationship(back_populates="user_quota")
+
+class Users(SQLModel, table=True):
+    __tablename__ = "users"
+    id: str = Field(primary_key=True, description="Clerk User ID")
+    email: str = Field(max_length=255, unique=True, index=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    
+    user_quota: Optional[UserQuotas] = Relationship(back_populates="user", sa_relationship_kwargs={"uselist": False})
+    attempts: List["Attempt"] = Relationship(back_populates="user")
+    quizzes: List["Quizzes"] = Relationship(back_populates="user")
+
+class QuizDifficulties(str, enum.Enum):
+    EASY = "easy"
+    MEDIUM = "medium"
+    HARD = "hard"
+    SUPERHARD = "superhard"
+
+class Quizzes(SQLModel, table=True):
+    __tablename__ = "quizzes"
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    user_id: str = Field(foreign_key="users.id", index=True)
+    title: str = Field(max_length=255)
+    difficulty: QuizDifficulties = Field(
+        sa_column=Column(SAEnum(QuizDifficulties), default=QuizDifficulties.EASY)
+    )
+    created_time: datetime = Field(default_factory=datetime.utcnow)
+    
+    user: "Users" = Relationship(back_populates="quizzes")
+    questions: List["Questions"] = Relationship(back_populates="quiz", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
+    attempts: List["Attempt"] = Relationship(back_populates="quiz")
+
+class Questions(SQLModel, table=True):
+    __tablename__ = "questions"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    quiz_id: uuid.UUID = Field(foreign_key="quizzes.id", index=True)
+    content: str = Field(sa_column=Column(Text))
+    explanation: Optional[str] = Field(sa_column=Column(Text))
+    type: str = Field(sa_column=Column(Text, server_default="mcq"))  # 'mcq' or 'tf'
+
+
+    quiz: "Quizzes" = Relationship(back_populates="questions")
+    options: List["Options"] = Relationship(back_populates="question", sa_relationship_kwargs={"cascade": "all, delete-orphan"})
+    answers_history: List["UserAnswerHistory"] = Relationship(back_populates="question")
+
+class Options(SQLModel, table=True):
+    __tablename__ = "options"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    question_id: int = Field(foreign_key="questions.id", index=True)
+    content: str = Field(sa_column=Column(Text))
+    is_correct: bool = Field(default=False)
+    
+    question: "Questions" = Relationship(back_populates="options")
+    user_answers: List["UserAnswerHistory"] = Relationship(back_populates="option")
+
+class AttemptStatus(str, enum.Enum):
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    ABANDONED = "abandoned"
+
+class Attempt(SQLModel, table=True):
+    __tablename__ = "attempt"
+    id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
+    user_id: str = Field(foreign_key="users.id", index=True)
+    quiz_id: uuid.UUID = Field(foreign_key="quizzes.id", index=True)
+    score: Optional[int] = Field(default=None)
+    starting_time: datetime = Field(default_factory=datetime.utcnow)
+    end_time: Optional[datetime] = Field(default=None)
+    status: AttemptStatus = Field(
+        sa_column=Column(SAEnum(AttemptStatus), default=AttemptStatus.IN_PROGRESS)
+    )
+
+    user: "Users" = Relationship(back_populates="attempts")
+    quiz: "Quizzes" = Relationship(back_populates="attempts")
+    answers_history: List["UserAnswerHistory"] = Relationship(back_populates="attempt")
+
+class UserAnswerHistory(SQLModel, table=True):
+    __tablename__ = "user_answers_history"
+    id: Optional[int] = Field(default=None, primary_key=True)
+    attempt_id: uuid.UUID = Field(foreign_key="attempt.id", index=True)
+    question_id: int = Field(foreign_key="questions.id")
+    option_id: int = Field(foreign_key="options.id")
+
+    attempt: "Attempt" = Relationship(back_populates="answers_history")
+    question: "Questions" = Relationship(back_populates="answers_history")
+    option: "Options" = Relationship(back_populates="user_answers")
+
+

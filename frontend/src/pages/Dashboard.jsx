@@ -9,6 +9,15 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { MOCK_QUIZZES } from '../data/mockQuizzes';
+
+// ── Mock recent activity feed ──────────────────────────────────
+const MOCK_RECENT_ACTIVITY = [
+  { id: 1, type: 'attempt', quizId: 1, label: 'JavaScript Fundamentals', meta: '80%',     date: '2026-04-05' },
+  { id: 2, type: 'created', quizId: 3, label: 'CSS Layout Mastery',      meta: 'Created', date: '2026-04-04' },
+  { id: 3, type: 'attempt', quizId: 2, label: 'React Hooks Deep Dive',   meta: '100%',    date: '2026-04-03' },
+  { id: 4, type: 'edited',  quizId: 1, label: 'JavaScript Fundamentals', meta: 'Edited',  date: '2026-04-02' },
+  { id: 5, type: 'created', quizId: 2, label: 'React Hooks Deep Dive',   meta: 'Created', date: '2026-04-01' },
+];
 import '../styles/dashboard.css';
 import { generateQuiz } from '../api/quizzes';
 import LoadingOverlay from '../components/LoadingOverlay';
@@ -114,6 +123,40 @@ export default function Dashboard() {
             <Sparkles size={16} />
             Quiz with AI
           </button>
+
+          {/* Recent Activity Mini-Feed */}
+          <div className="db-recent-section">
+            <p className="db-recent-title">Recent Activity</p>
+            <ul className="db-recent-list">
+              {MOCK_RECENT_ACTIVITY.map(item => {
+                const quiz = quizzes.find(q => q.id === item.quizId);
+                return (
+                  <li key={item.id}>
+                    <button
+                      className="db-recent-item"
+                      onClick={() => quiz && openDetail(quiz)}
+                      title={quiz ? `Open ${item.label}` : 'Quiz not found'}
+                      style={{ width: '100%', background: 'none', border: 'none', cursor: quiz ? 'pointer' : 'default', padding: 0, textAlign: 'left', font: 'inherit' }}
+                    >
+                      <span className={`db-recent-dot db-recent-dot-${item.type}`} />
+                      <div className="db-recent-info">
+                        <span className="db-recent-label" title={item.label}>{item.label}</span>
+                        <span className="db-recent-meta">
+                          {item.type === 'attempt' ? (
+                            <span style={{ color: item.meta === '100%' ? 'var(--success)' : 'var(--warn)' }}>{item.meta}</span>
+                          ) : (
+                            item.meta
+                          )}
+                          {' · '}{item.date}
+                        </span>
+                      </div>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            <Link to="/history" className="db-recent-more">Show More</Link>
+          </div>
         </nav>
 
         <div className="db-sidebar-footer">

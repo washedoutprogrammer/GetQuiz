@@ -1,7 +1,7 @@
 import { apiFetch } from './client';
 
-export async function getQuizzes() {
-  return apiFetch('/quizzes');
+export async function getQuizzes(userId) {
+  return apiFetch(`/quizzes?user_id=${userId}`);
 }
 
 export async function getQuiz(id) {

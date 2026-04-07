@@ -10,6 +10,7 @@ class Settings:
     
     # Get key from .env file
     GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
     
     # List of allowed domains for Cross-Origin Resource Sharing (CORS)
     CORS_ORIGINS: list = [

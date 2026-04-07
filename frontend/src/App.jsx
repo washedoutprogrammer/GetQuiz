@@ -3,6 +3,7 @@ import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider } from './context/AuthContext';
 import Landing from './pages/Landing';
 import Dashboard from './pages/Dashboard';
+import History from './pages/History';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import QuizSession from './pages/QuizSession';
@@ -25,6 +26,7 @@ function AppRoutes() {
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
       <Route path="/dashboard" element={<Dashboard />} />
+      <Route path="/history" element={<History />} />
       <Route path="/quiz/:quizId" element={<QuizSession />} />
       <Route path="/results/:sessionId" element={<Results />} />
     </Routes>
