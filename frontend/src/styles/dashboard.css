@@ -1496,3 +1496,228 @@
   color: var(--success);
   border-color: rgba(61, 255, 160, 0.2);
 }
+
+/* ── Quota / Plan Widget ──────────────────────────────────────── */
+
+/* Sidebar compact badge */
+.db-quota-sidebar {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: var(--db-surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.db-quota-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.db-plan-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.62rem;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.15rem 0.5rem;
+  border-radius: var(--radius-full);
+}
+
+.db-plan-badge-free {
+  background: rgba(122, 114, 160, 0.15);
+  color: var(--text-3);
+  border: 1px solid rgba(122, 114, 160, 0.25);
+}
+
+.db-plan-badge-pro {
+  background: rgba(124, 92, 252, 0.15);
+  color: var(--accent-2);
+  border: 1px solid rgba(124, 92, 252, 0.3);
+}
+
+.db-plan-badge-teams {
+  background: rgba(14, 165, 160, 0.15);
+  color: #10c9a3;
+  border: 1px solid rgba(14, 165, 160, 0.3);
+}
+
+.db-quota-count {
+  font-size: 0.65rem;
+  font-family: var(--font-mono);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.db-quota-count-warn {
+  color: #ffbe3d;
+}
+
+.db-quota-count-full {
+  color: #ff7070;
+}
+
+/* Progress bar */
+.db-quota-bar-wrap {
+  height: 4px;
+  background: var(--border);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.db-quota-bar-fill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.4s var(--ease-out), background 0.3s;
+}
+
+.db-quota-bar-fill-ok   { background: var(--accent-2); }
+.db-quota-bar-fill-warn { background: #ffbe3d; }
+.db-quota-bar-fill-full { background: #ff7070; }
+.db-quota-bar-fill-inf  { background: linear-gradient(90deg, #10c9a3, #0ea5a0); }
+
+/* AI-view full quota panel */
+.db-quota-panel {
+  background: var(--db-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1.25rem 1.5rem;
+  margin-bottom: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+.db-quota-panel-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.db-quota-panel-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: var(--text-2);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.db-quota-panel-value {
+  font-size: 0.78rem;
+  font-family: var(--font-mono);
+  color: var(--text-3);
+}
+
+.db-quota-panel value-warn { color: #ffbe3d; }
+.db-quota-panel-value-full { color: #ff7070; }
+
+.db-quota-bar-wrap-lg {
+  height: 6px;
+  background: var(--border);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.db-quota-bar-fill-lg {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.5s var(--ease-out), background 0.3s;
+}
+
+/* Plan toggle row (demo) */
+.db-plan-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex-wrap: wrap;
+}
+
+.db-plan-toggle-row label {
+  font-size: 0.68rem;
+  font-family: var(--font-mono);
+  color: var(--text-3);
+  margin-right: 0.25rem;
+}
+
+.db-plan-btn {
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-full);
+  font-size: 0.65rem;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: none;
+  color: var(--text-3);
+  transition: all var(--t-fast);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.db-plan-btn:hover {
+  background: var(--accent-soft);
+  color: var(--accent-2);
+  border-color: var(--accent);
+}
+
+.db-plan-btn-active-free {
+  background: rgba(122, 114, 160, 0.15);
+  color: var(--text-2);
+  border-color: rgba(122, 114, 160, 0.4);
+}
+
+.db-plan-btn-active-pro {
+  background: var(--accent-soft);
+  color: var(--accent-2);
+  border-color: var(--accent-2);
+}
+
+.db-plan-btn-active-teams {
+  background: rgba(14, 165, 160, 0.12);
+  color: #10c9a3;
+  border-color: rgba(14, 165, 160, 0.35);
+}
+
+/* Soft limit-reached banner */
+.db-quota-limit-banner {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-md);
+  background: rgba(255, 80, 80, 0.07);
+  border: 1px solid rgba(255, 80, 80, 0.2);
+  font-size: 0.8rem;
+  color: #ff7070;
+  font-weight: 500;
+}
+
+.db-quota-upgrade-link {
+  margin-left: auto;
+  font-size: 0.72rem;
+  font-family: var(--font-mono);
+  color: var(--accent-2);
+  text-decoration: underline;
+  cursor: pointer;
+  white-space: nowrap;
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+.db-quota-upgrade-link:hover {
+  color: var(--accent);
+}

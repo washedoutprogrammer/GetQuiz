@@ -5,7 +5,7 @@ import {
   ChevronRight, Search, Trash2, Edit3, X, Plus, Check,
   ToggleLeft, CheckSquare, Clock, HelpCircle, ArrowLeft,
   AlertCircle, BookOpen, BarChart2, ChevronDown,
-  Sparkles, Loader2, Trophy, RotateCcw
+  Sparkles, Loader2, Trophy, RotateCcw, Flame
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useUser, useAuth } from '@clerk/clerk-react';
@@ -14,6 +14,7 @@ import { generateQuiz, getQuizzes, createQuiz, deleteQuiz } from '../api/quizzes
 import { setTokenGetter } from '../api/client';
 import LoadingOverlay from '../components/LoadingOverlay';
 import Toast from '../components/Toast';
+import { useQuota, PLAN_LIMITS, PLAN_LABELS } from '../lib/useQuota';
 
 
 // ── Mock recent activity feed (replaced by live quiz state — see sidebar below)
@@ -43,6 +44,9 @@ export default function Dashboard() {
   const { user } = useUser();
   const { getToken } = useAuth();
   const userId = user?.id ?? 'anonymous';
+
+  // ── Quota / plan state ─────────────────────────────────────────
+  const quota = useQuota(userId);
 
   const [quizzes, dispatch] = useReducer(quizzesReducer, []);
   const [view, setView] = useState(VIEWS.HOME);
@@ -200,6 +204,7 @@ export default function Dashboard() {
         // Cập nhật giao diện: thế chỗ dummy quiz bằng quiz mới
         dispatch({ type: 'DELETE_QUIZ', id: tempId });
         dispatch({ type: 'ADD_QUIZ', quiz: res.data.data });
+        quota.consume(); // ← decrement daily quota
         showToast("AI Quiz generated successfully!", "success");
       } else {
         // Lỗi từ backend (hoặc parse failed)
@@ -213,7 +218,7 @@ export default function Dashboard() {
       dispatch({ type: 'UPDATE_QUIZ', quiz: { ...skeletonQuiz, isLoading: false, isFailed: true } });
       showToast("Network error generating AI Quiz", "error");
     }
-  }, [userId, dispatch]);
+  }, [userId, dispatch, quota]);
 
   // ── [Mới] Huỷ tiến trình tạo AI
   // Description: Gọi controller.abort() huỷ request và dẹp tan state skeleton.
@@ -328,6 +333,9 @@ export default function Dashboard() {
             )}
             <Link to="/history" className="db-recent-more">Show More</Link>
           </div>
+
+          {/* Quota compact badge in sidebar */}
+          <QuotaSidebarWidget quota={quota} />
         </nav>
 
         <div className="db-sidebar-footer">
@@ -374,6 +382,7 @@ export default function Dashboard() {
           <AiCreateQuiz
             userId={userId}
             initialConfig={initialAiConfig}
+            quota={quota}
             onSave={(prompt, numQ, mix) => { setInitialAiConfig(null); handleStartAiTask(prompt, numQ, mix); }}
             onCancel={() => { setInitialAiConfig(null); setView(VIEWS.HOME); }}
           />
@@ -940,18 +949,24 @@ function TFEditor({ q, idx, errors, onUpdate, onRemove }) {
 // ── AiCreateQuiz View ──────────────────────────────────────────
 
 // Description: Form cấu hình tạo AI
-// Input: initialConfig (nếu có để phục hồi Edit), userId (string)
-function AiCreateQuiz({ userId = 'anonymous', initialConfig, onSave, onCancel }) {
+// Input: initialConfig (nếu có để phục hồi Edit), userId (string), quota object
+function AiCreateQuiz({ userId = 'anonymous', initialConfig, quota, onSave, onCancel }) {
   // Nếu có initialConfig (do người dùng bấm Edit), các trường sẽ được điền tự động
   const [prompt, setPrompt] = useState(initialConfig?.prompt || '');
   const [numQ, setNumQ] = useState(initialConfig?.numQ || '5');
   const [mix, setMix] = useState(initialConfig?.mix || 'mixed');
   const [promptError, setPromptError] = useState('');
 
+  const { plan, used, limit, remaining, canGenerate, setPlan } = quota || {};
+
   // Description: Handle Generate Quiz button
   // Input: event from button click
   // Output: Gọi onSave để khởi tạo Background task tại Dashboard
   const handleGenerate = () => {
+    if (!canGenerate) {
+      setPromptError('Daily limit reached. Please upgrade your plan to continue.');
+      return;
+    }
     if (!prompt.trim()) {
       setPromptError('Please describe a topic to generate questions about.');
       return;
@@ -978,6 +993,9 @@ function AiCreateQuiz({ userId = 'anonymous', initialConfig, onSave, onCancel })
           </p>
         </div>
       </header>
+
+      {/* Quota panel */}
+      {quota && <QuotaPanel plan={plan} used={used} limit={limit} remaining={remaining} canGenerate={canGenerate} setPlan={setPlan} />}
 
       <section className="db-form-section">
         <h2 className="db-form-section-title db-ai-section-title">Topic &amp; Prompt</h2>
@@ -1020,11 +1038,147 @@ function AiCreateQuiz({ userId = 'anonymous', initialConfig, onSave, onCancel })
         </div>
 
         <div style={{ marginTop: '1.75rem' }}>
-          <button className="btn-ai" onClick={handleGenerate} id="ai-generate-btn">
+          <button
+            className="btn-ai"
+            onClick={handleGenerate}
+            id="ai-generate-btn"
+            disabled={quota && !canGenerate}
+            style={quota && !canGenerate ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
+          >
             <Sparkles size={15} /> Generate Quiz
           </button>
         </div>
       </section>
+    </div>
+  );
+}
+
+// ── QuotaSidebarWidget ────────────────────────────────────────
+// Compact widget shown in the sidebar below Recent Activity.
+function QuotaSidebarWidget({ quota }) {
+  const { plan, used, limit, remaining, canGenerate } = quota;
+  const isUnlimited = limit === Infinity;
+  const pct = isUnlimited ? 100 : Math.min(100, (used / limit) * 100);
+  const isWarn = !isUnlimited && remaining <= Math.ceil(limit * 0.2) && remaining > 0;
+  const isFull = !isUnlimited && !canGenerate;
+
+  const fillClass = isUnlimited
+    ? 'db-quota-bar-fill-inf'
+    : isFull ? 'db-quota-bar-fill-full'
+    : isWarn ? 'db-quota-bar-fill-warn'
+    : 'db-quota-bar-fill-ok';
+
+  const countClass = isFull
+    ? 'db-quota-count db-quota-count-full'
+    : isWarn
+    ? 'db-quota-count db-quota-count-warn'
+    : 'db-quota-count';
+
+  return (
+    <div className="db-quota-sidebar" aria-label="AI generation quota">
+      <div className="db-quota-header">
+        <span className={`db-plan-badge db-plan-badge-${plan}`}>
+          {plan === 'teams' ? '⚡ ' : plan === 'pro' ? '✦ ' : ''}
+          {PLAN_LABELS[plan]}
+        </span>
+        <span className={countClass}>
+          {isUnlimited ? '∞ unlimited' : `${used} / ${limit} today`}
+        </span>
+      </div>
+      <div className="db-quota-bar-wrap" role="progressbar" aria-valuenow={used} aria-valuemax={isUnlimited ? 1 : limit}>
+        <div
+          className={`db-quota-bar-fill ${fillClass}`}
+          style={{ width: `${isUnlimited ? 100 : pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ── QuotaPanel ────────────────────────────────────────────────
+// Full panel shown inside the AI Create view with plan switcher.
+function QuotaPanel({ plan, used, limit, remaining, canGenerate, setPlan }) {
+  const isUnlimited = limit === Infinity;
+  const pct = isUnlimited ? 100 : Math.min(100, (used / limit) * 100);
+  const isWarn = !isUnlimited && remaining <= Math.ceil(limit * 0.2) && remaining > 0;
+  const isFull = !isUnlimited && !canGenerate;
+
+  const fillClass = isUnlimited
+    ? 'db-quota-bar-fill-inf'
+    : isFull ? 'db-quota-bar-fill-full'
+    : isWarn ? 'db-quota-bar-fill-warn'
+    : 'db-quota-bar-fill-ok';
+
+  const valueColor = isFull ? '#ff7070' : isWarn ? '#ffbe3d' : undefined;
+
+  return (
+    <div className="db-quota-panel" aria-label="Daily AI quiz generation quota">
+      {/* Header row: label + plan badge */}
+      <div className="db-quota-panel-row">
+        <span className="db-quota-panel-label">
+          <Flame size={13} style={{ color: '#ffbe3d' }} />
+          AI Generation Quota
+        </span>
+        <span className={`db-plan-badge db-plan-badge-${plan}`}>
+          {plan === 'teams' ? '⚡ ' : plan === 'pro' ? '✦ ' : ''}
+          {PLAN_LABELS[plan]}
+        </span>
+      </div>
+
+      {/* Bar + counter */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--text-3)' }}>
+            Today's usage
+          </span>
+          <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: valueColor || 'var(--text-2)', fontWeight: 600 }}>
+            {isUnlimited
+              ? `${used} used · Unlimited`
+              : `${used} / ${limit} quizzes`}
+          </span>
+        </div>
+        <div className="db-quota-bar-wrap-lg" role="progressbar" aria-valuenow={used} aria-valuemax={isUnlimited ? 1 : limit}>
+          <div
+            className={`db-quota-bar-fill-lg db-quota-bar-fill ${fillClass}`}
+            style={{ width: `${isUnlimited ? 40 : pct}%` }}
+          />
+        </div>
+        {!isUnlimited && (
+          <span style={{ fontSize: '0.68rem', fontFamily: 'var(--font-mono)', color: valueColor || 'var(--text-3)' }}>
+            {canGenerate
+              ? `${remaining} generation${remaining !== 1 ? 's' : ''} remaining today`
+              : 'Limit reached — resets at midnight or upgrade your plan'}
+          </span>
+        )}
+      </div>
+
+      {/* Limit-reached banner */}
+      {isFull && (
+        <div className="db-quota-limit-banner" role="alert">
+          <AlertCircle size={15} />
+          Daily limit reached for the {PLAN_LABELS[plan]} plan.
+          <button className="db-quota-upgrade-link" onClick={() => document.getElementById('pricing')?.scrollIntoView?.({ behavior: 'smooth' })}>
+            Upgrade plan →
+          </button>
+        </div>
+      )}
+
+      {/* Demo plan switcher — lets user test different plan tiers */}
+      <div className="db-plan-toggle-row" aria-label="Switch plan (demo)">
+        <label>Plan (demo):</label>
+        {['free', 'pro', 'teams'].map(p => (
+          <button
+            key={p}
+            className={`db-plan-btn${plan === p ? ` db-plan-btn-active-${p}` : ''}`}
+            onClick={() => setPlan(p)}
+            aria-pressed={plan === p}
+          >
+            {p === 'free' ? `Free · ${PLAN_LIMITS.free}/day`
+             : p === 'pro' ? `Pro · ${PLAN_LIMITS.pro}/day`
+             : 'Teams · ∞'}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
