@@ -168,7 +168,7 @@ export default function Dashboard() {
   // Description: Thiết lập Skeleton card, ghi vào localStorage, thiết lập AbortController rồi call API fetch.
   // Input: prompt (string), numQ (string/number), mix (string), customId (optional string phục vụ retry)
   // Output: Update state quizzes, gửi request về backend, gọi dispatch / showToast phụ thuộc payload api trả về.
-  const handleStartAiTask = useCallback(async (prompt, numQ, mix, customId = null) => {
+  const handleStartAiTask = useCallback(async (prompt, numQ, mix, customId = null, file = null) => {
     const tempId = customId || `loading_${Date.now()}`;
     const skeletonQuiz = {
       id: tempId,
@@ -179,7 +179,7 @@ export default function Dashboard() {
       createdAt: new Date().toISOString().slice(0, 10),
       isLoading: true,
       isFailed: false,
-      aiTaskParams: { prompt, numQ, mix } // Gắn kèm param gốc để phục vụ Edit/Retry
+      aiTaskParams: { prompt, numQ, mix } // File is intentionally excluded — cannot store File in localStorage
     };
     
     // Ghi vào state, dùng UPDATE_QUIZ để override card nếu đang là retry (tức isFailed = true trước đó)
@@ -205,7 +205,7 @@ export default function Dashboard() {
     abortControllers.current[tempId] = controller;
 
     try {
-      const res = await generateQuiz(userId, prompt, parseInt(numQ, 10), controller.signal);
+      const res = await generateQuiz(userId, prompt, parseInt(numQ, 10), controller.signal, file);
       
       // Request thành công hoặc kết thúc, phải dọn dẹp controller và xoá task khỏi storage
       const currentStored = JSON.parse(localStorage.getItem('getquiz_pending_tasks_v2') || '[]');
@@ -397,7 +397,7 @@ export default function Dashboard() {
             userId={userId}
             initialConfig={initialAiConfig}
             quota={quota}
-            onSave={(prompt, numQ, mix) => { setInitialAiConfig(null); handleStartAiTask(prompt, numQ, mix); }}
+            onSave={(prompt, numQ, mix, file) => { setInitialAiConfig(null); handleStartAiTask(prompt, numQ, mix, null, file); }}
             onCancel={() => { setInitialAiConfig(null); setView(VIEWS.HOME); }}
           />
         )}
@@ -707,6 +707,11 @@ function QuestionCard({ question, index }) {
               </span>
             </div>
           )}
+          {question.explanation && (
+            <div style={{ marginTop: '0.75rem', padding: '0.625rem', backgroundColor: 'var(--surface-2)', borderRadius: '0.5rem', fontSize: '0.82rem', color: 'var(--text-2)' }}>
+              <strong style={{ color: 'var(--text-1)' }}>Explanation:</strong> {question.explanation}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -714,8 +719,8 @@ function QuestionCard({ question, index }) {
 }
 
 // ── CreateQuiz View ────────────────────────────────────────────
-const EMPTY_MCQ = () => ({ id: Date.now() + Math.random(), type: 'mcq', text: '', options: ['', '', '', ''], correctIndex: 0 });
-const EMPTY_TF = () => ({ id: Date.now() + Math.random(), type: 'tf', text: '', correct: true });
+const EMPTY_MCQ = () => ({ id: Date.now() + Math.random(), type: 'mcq', text: '', options: ['', '', '', ''], correctIndex: 0, explanation: '' });
+const EMPTY_TF = () => ({ id: Date.now() + Math.random(), type: 'tf', text: '', correct: true, explanation: '' });
 
 function CreateQuiz({ onSave, onCancel }) {
   const [title, setTitle] = useState('');
@@ -890,6 +895,18 @@ function MCQEditor({ q, idx, errors, onUpdate, onOption, onRemove }) {
         {errors[`q${idx}_text`] && <p className="db-error">{errors[`q${idx}_text`]}</p>}
       </div>
 
+      <div className="db-form-field">
+        <label className="db-label" htmlFor={`q-exp-${q.id}`}>Explanation (Optional)</label>
+        <textarea
+          id={`q-exp-${q.id}`}
+          className="db-input db-textarea"
+          value={q.explanation || ''}
+          onChange={e => onUpdate(q.id, { explanation: e.target.value })}
+          placeholder="Explain why the correct answer is right…"
+          rows={1}
+        />
+      </div>
+
       <div className="db-options-editor">
         <p className="db-label">Options — click the circle to mark correct answer</p>
         {q.options.map((opt, oi) => (
@@ -939,6 +956,18 @@ function TFEditor({ q, idx, errors, onUpdate, onRemove }) {
         {errors[`q${idx}_text`] && <p className="db-error">{errors[`q${idx}_text`]}</p>}
       </div>
 
+      <div className="db-form-field">
+        <label className="db-label" htmlFor={`q-tf-exp-${q.id}`}>Explanation (Optional)</label>
+        <textarea
+          id={`q-tf-exp-${q.id}`}
+          className="db-input db-textarea"
+          value={q.explanation || ''}
+          onChange={e => onUpdate(q.id, { explanation: e.target.value })}
+          placeholder="Explain why this statement is true or false…"
+          rows={1}
+        />
+      </div>
+
       <div className="db-tf-toggle-row">
         <p className="db-label">Correct Answer</p>
         <div className="db-tf-buttons">
@@ -970,8 +999,20 @@ function AiCreateQuiz({ userId = 'anonymous', initialConfig, quota, onSave, onCa
   const [numQ, setNumQ] = useState(initialConfig?.numQ || '5');
   const [mix, setMix] = useState(initialConfig?.mix || 'mixed');
   const [promptError, setPromptError] = useState('');
+  const [file, setFile] = useState(null);
+  const fileInputRef = useRef(null);
 
   const { plan, used, limit, remaining, canGenerate, setPlan } = quota || {};
+
+  const handleFileChange = (e) => {
+    const selected = e.target.files?.[0] ?? null;
+    setFile(selected);
+  };
+
+  const clearFile = () => {
+    setFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
 
   // Description: Handle Generate Quiz button
   // Input: event from button click
@@ -988,7 +1029,7 @@ function AiCreateQuiz({ userId = 'anonymous', initialConfig, quota, onSave, onCa
     setPromptError('');
     
     // Gọi thẳng lên handleStartAiTask trên Dashboard
-    onSave(prompt, numQ, mix);
+    onSave(prompt, numQ, mix, file);
   };
 
   return (
@@ -1028,6 +1069,52 @@ function AiCreateQuiz({ userId = 'anonymous', initialConfig, quota, onSave, onCa
             />
           </div>
           {promptError && <p className="db-error" style={{ marginTop: '0.375rem' }}>{promptError}</p>}
+        </div>
+
+        {/* File context upload */}
+        <div className="db-form-field" style={{ marginBottom: '1.25rem' }}>
+          <label className="db-label" htmlFor="ai-file-upload">
+            Upload Context File <span className="db-label-hint">(optional · .txt, .pdf, .docx)</span>
+          </label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', marginTop: '0.375rem' }}>
+            <label
+              htmlFor="ai-file-upload"
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
+                padding: '0.45rem 0.875rem', borderRadius: '0.5rem', cursor: 'pointer',
+                fontSize: '0.82rem', fontWeight: 500, border: '1.5px dashed var(--border-1)',
+                background: 'var(--surface-1)', color: 'var(--text-2)', transition: 'all 0.15s',
+              }}
+            >
+              <BookOpen size={14} /> {file ? 'Change file' : 'Browse file…'}
+            </label>
+            <input
+              id="ai-file-upload"
+              ref={fileInputRef}
+              type="file"
+              accept=".txt,.pdf,.docx"
+              onChange={handleFileChange}
+              style={{ display: 'none' }}
+            />
+            {file && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.78rem', color: 'var(--text-2)', maxWidth: '55%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <Check size={12} style={{ color: '#10c9a3', flexShrink: 0 }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
+                <button
+                  onClick={clearFile}
+                  aria-label="Remove file"
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 0.1rem', color: 'var(--text-3)', flexShrink: 0 }}
+                >
+                  <X size={13} />
+                </button>
+              </span>
+            )}
+          </div>
+          {file && (
+            <p style={{ fontSize: '0.7rem', color: 'var(--text-3)', marginTop: '0.35rem' }}>
+              The AI will use this document as context to generate more targeted questions.
+            </p>
+          )}
         </div>
 
         <h2 className="db-form-section-title db-ai-section-title" style={{ marginBottom: '0.75rem' }}>Options</h2>
