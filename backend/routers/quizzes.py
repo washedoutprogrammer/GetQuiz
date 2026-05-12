@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends, Form, File, UploadFile
 from models.schemas import APIResponse, GeneratedQuizResponse, SaveManualQuizRequest
-from services.ai_service import generate_quiz_from_prompt
+from services.ai_service import generate_quiz_from_prompt, suggest_topics_from_context
 from services import db_service, file_service
 from models.database import get_session
 from sqlmodel import Session
@@ -114,6 +114,36 @@ async def generate_quiz(
         return APIResponse(status="success", data=resp)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error saving quiz to database: {str(e)}")
+
+
+@router.post("/suggest-topics")
+async def suggest_topics(
+    file: UploadFile = File(...),
+):
+    """Analyse an uploaded document and return 3–5 AI-suggested quiz topics.
+
+    Accepts multipart/form-data with a single 'file' field (.txt, .pdf, .docx, .md, etc.).
+    Returns: { "topics": [{"title": str, "description": str}] }
+    """
+    if not file or not file.filename:
+        raise HTTPException(status_code=400, detail="A file must be provided.")
+
+    try:
+        context = await file_service.extract_text_from_file(file)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to process file: {str(e)}")
+
+    if not context.strip():
+        raise HTTPException(status_code=400, detail="The uploaded file appears to be empty.")
+
+    result = await suggest_topics_from_context(context)
+
+    if result.get("status") == "error":
+        raise HTTPException(status_code=400, detail=result.get("message", "AI could not suggest topics."))
+
+    return {"topics": result.get("topics", [])}
 
 
 @router.post("/", response_model=dict)

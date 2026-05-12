@@ -5,12 +5,12 @@ import {
   ChevronRight, Search, Trash2, Edit3, X, Plus, Check,
   ToggleLeft, CheckSquare, Clock, HelpCircle, ArrowLeft,
   AlertCircle, BookOpen, BarChart2, ChevronDown,
-  Sparkles, Loader2, Trophy, RotateCcw, Flame
+  Sparkles, Loader2, Trophy, RotateCcw, Flame, RefreshCw
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useUser, useAuth } from '@clerk/clerk-react';
 import '../styles/dashboard.css';
-import { generateQuiz, getQuizzes, createQuiz, deleteQuiz, getHistory } from '../api/quizzes';
+import { generateQuiz, getQuizzes, createQuiz, deleteQuiz, getHistory, suggestTopics } from '../api/quizzes';
 import { setTokenGetter } from '../api/client';
 import LoadingOverlay from '../components/LoadingOverlay';
 import Toast from '../components/Toast';
@@ -223,7 +223,8 @@ export default function Dashboard() {
     abortControllers.current[tempId] = controller;
 
     try {
-      const res = await generateQuiz(userId, prompt, parseInt(numQ, 10), controller.signal);
+      // Cập nhật: Gửi kèm file
+      const res = await generateQuiz(userId, prompt, parseInt(numQ, 10), controller.signal, file);
 
       // Request thành công hoặc kết thúc, phải dọn dẹp controller và xoá task khỏi storage
       const currentStored = JSON.parse(localStorage.getItem('getquiz_pending_tasks_v2') || '[]');
@@ -1031,7 +1032,7 @@ function TFEditor({ q, idx, errors, onUpdate, onRemove }) {
 
 // ── AiCreateQuiz View ──────────────────────────────────────────
 
-// Description: Form cấu hình tạo AI
+// Description: Form cấu hình tạo AI — hai panel: free-prompt và RAG document context
 // Input: initialConfig (nếu có để phục hồi Edit), userId (string), quota object
 function AiCreateQuiz({ userId = 'anonymous', initialConfig, quota, onSave, onCancel }) {
   // Nếu có initialConfig (do người dùng bấm Edit), các trường sẽ được điền tự động
@@ -1040,7 +1041,15 @@ function AiCreateQuiz({ userId = 'anonymous', initialConfig, quota, onSave, onCa
   const [mix, setMix] = useState(initialConfig?.mix || 'mixed');
   const [promptError, setPromptError] = useState('');
   const [file, setFile] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
+  // RAG panel state
+  const [ragPrompt, setRagPrompt] = useState('');
+  const [ragTopics, setRagTopics] = useState(null);   // null = not fetched, [] = empty
+  const [selectedTopic, setSelectedTopic] = useState(null); // { title, description } | null
+  const [suggestingTopics, setSuggestingTopics] = useState(false);
+  const [suggestError, setSuggestError] = useState('');
   const fileInputRef = useRef(null);
+  const ACCEPTED_TYPES = '.md,.pdf,.txt,.doc,.docx,.ppt,.pptx';
 
   const { plan, used, limit, remaining, canGenerate, setPlan } = quota || {};
 
@@ -1052,9 +1061,24 @@ function AiCreateQuiz({ userId = 'anonymous', initialConfig, quota, onSave, onCa
   const clearFile = () => {
     setFile(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
+    // Reset all RAG-related state when file is removed
+    setRagPrompt('');
+    setRagTopics(null);
+    setSelectedTopic(null);
+    setSuggestError('');
   };
 
-  // Description: Handle Generate Quiz button
+  // Drag-and-drop handlers for the RAG dropzone
+  const handleDragOver = (e) => { e.preventDefault(); setDragOver(true); };
+  const handleDragLeave = () => setDragOver(false);
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    const dropped = e.dataTransfer.files?.[0] ?? null;
+    if (dropped) setFile(dropped);
+  };
+
+  // Description: Handle Generate Quiz button (free-prompt path)
   // Input: event from button click
   // Output: Gọi onSave để khởi tạo Background task tại Dashboard
   const handleGenerate = () => {
@@ -1067,10 +1091,33 @@ function AiCreateQuiz({ userId = 'anonymous', initialConfig, quota, onSave, onCa
       return;
     }
     setPromptError('');
-
-    // Gọi thẳng lên handleStartAiTask trên Dashboard
-    onSave(prompt, numQ, mix, file);
+    onSave(prompt, numQ, mix, null); // file intentionally null — free-prompt path
   };
+
+  // Description: Fetch AI-suggested topics from the uploaded document
+  const handleSuggestTopics = async () => {
+    setSuggestingTopics(true);
+    setSuggestError('');
+    setRagTopics(null);
+    setSelectedTopic(null);
+    const res = await suggestTopics(file);
+    setSuggestingTopics(false);
+    if (res.ok && Array.isArray(res.data?.topics)) {
+      setRagTopics(res.data.topics);
+    } else {
+      setSuggestError(res.error || 'Could not analyse the document. Please try again.');
+    }
+  };
+
+  // Description: Generate quiz from RAG panel (uses selectedTopic title OR ragPrompt)
+  // Always sends file to the backend for context grounding
+  const handleRagGenerate = () => {
+    const topic = selectedTopic ? selectedTopic.title : ragPrompt.trim();
+    onSave(topic, numQ, mix, file);
+  };
+
+  // Options unlock condition for the RAG panel
+  const ragOptionsActive = !!file && (ragPrompt.trim().length > 0 || selectedTopic !== null);
 
   return (
     <div className="db-view">
@@ -1092,6 +1139,7 @@ function AiCreateQuiz({ userId = 'anonymous', initialConfig, quota, onSave, onCa
       {/* Quota panel */}
       {quota && <QuotaPanel plan={plan} used={used} limit={limit} remaining={remaining} canGenerate={canGenerate} setPlan={setPlan} />}
 
+      {/* ── Panel 1: Free-context prompt ── */}
       <section className="db-form-section">
         <h2 className="db-form-section-title db-ai-section-title">Topic &amp; Prompt</h2>
         <div className="db-form-field" style={{ marginBottom: '1.25rem' }}>
@@ -1109,52 +1157,6 @@ function AiCreateQuiz({ userId = 'anonymous', initialConfig, quota, onSave, onCa
             />
           </div>
           {promptError && <p className="db-error" style={{ marginTop: '0.375rem' }}>{promptError}</p>}
-        </div>
-
-        {/* File context upload */}
-        <div className="db-form-field" style={{ marginBottom: '1.25rem' }}>
-          <label className="db-label" htmlFor="ai-file-upload">
-            Upload Context File <span className="db-label-hint">(optional · .txt, .pdf, .docx)</span>
-          </label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', marginTop: '0.375rem' }}>
-            <label
-              htmlFor="ai-file-upload"
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: '0.4rem',
-                padding: '0.45rem 0.875rem', borderRadius: '0.5rem', cursor: 'pointer',
-                fontSize: '0.82rem', fontWeight: 500, border: '1.5px dashed var(--border-1)',
-                background: 'var(--surface-1)', color: 'var(--text-2)', transition: 'all 0.15s',
-              }}
-            >
-              <BookOpen size={14} /> {file ? 'Change file' : 'Browse file…'}
-            </label>
-            <input
-              id="ai-file-upload"
-              ref={fileInputRef}
-              type="file"
-              accept=".txt,.pdf,.docx"
-              onChange={handleFileChange}
-              style={{ display: 'none' }}
-            />
-            {file && (
-              <span style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.78rem', color: 'var(--text-2)', maxWidth: '55%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                <Check size={12} style={{ color: '#10c9a3', flexShrink: 0 }} />
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
-                <button
-                  onClick={clearFile}
-                  aria-label="Remove file"
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 0.1rem', color: 'var(--text-3)', flexShrink: 0 }}
-                >
-                  <X size={13} />
-                </button>
-              </span>
-            )}
-          </div>
-          {file && (
-            <p style={{ fontSize: '0.7rem', color: 'var(--text-3)', marginTop: '0.35rem' }}>
-              The AI will use this document as context to generate more targeted questions.
-            </p>
-          )}
         </div>
 
         <h2 className="db-form-section-title db-ai-section-title" style={{ marginBottom: '0.75rem' }}>Options</h2>
@@ -1189,6 +1191,229 @@ function AiCreateQuiz({ userId = 'anonymous', initialConfig, quota, onSave, onCa
             <Sparkles size={15} /> Generate Quiz
           </button>
         </div>
+      </section>
+
+      {/* ── Panel 2: Document Context (RAG) — file upload + interactive features ── */}
+      <section className="db-rag-section">
+        <div className="db-rag-header">
+          <h2 className="db-form-section-title db-ai-section-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <BookOpen size={16} style={{ color: '#10c9a3' }} /> Document Context
+          </h2>
+          <span className="db-rag-badge">RAG</span>
+        </div>
+        <p className="db-rag-desc">
+          Upload a document — the AI will ground its questions in your content.
+        </p>
+
+        {/* Drop zone */}
+        <div
+          className={`db-rag-dropzone${dragOver ? ' drag-over' : ''}${file ? ' has-file' : ''}`}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          onClick={() => fileInputRef.current?.click()}
+          role="button"
+          tabIndex={0}
+          aria-label="Upload context file"
+          onKeyDown={e => e.key === 'Enter' && fileInputRef.current?.click()}
+        >
+          <input
+            id="ai-file-upload"
+            ref={fileInputRef}
+            type="file"
+            accept={ACCEPTED_TYPES}
+            onChange={handleFileChange}
+            style={{ display: 'none' }}
+          />
+          {file ? (
+            <div className="db-rag-file-chip">
+              <Check size={14} style={{ color: '#10c9a3', flexShrink: 0 }} />
+              <span className="db-rag-file-name">{file.name}</span>
+              <button
+                className="db-rag-file-clear"
+                onClick={e => { e.stopPropagation(); clearFile(); }}
+                aria-label="Remove file"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          ) : (
+            <div className="db-rag-dropzone-inner">
+              <BookOpen size={28} className="db-rag-dropzone-icon" />
+              <p className="db-rag-dropzone-title">Drop your file here, or <span className="db-rag-browse-link">Browse</span></p>
+              <p className="db-rag-dropzone-hint">.md · .pdf · .txt · .doc · .docx · .ppt · .pptx</p>
+            </div>
+          )}
+        </div>
+
+        {/* ── Interactive area — only shown when a file is loaded ── */}
+        {file && (
+          <div className="db-rag-interactive">
+
+            {/* Context-grounded prompt textarea */}
+            <div className="db-rag-prompt-block">
+              <label className="db-label" htmlFor="rag-prompt">
+                What do you want the quiz to be about?
+                <span className="db-label-hint"> (based on the uploaded document)</span>
+              </label>
+              <textarea
+                id="rag-prompt"
+                className={`db-ai-prompt db-rag-textarea${selectedTopic ? ' db-rag-textarea-blocked' : ''}`}
+                value={ragPrompt}
+                onChange={e => {
+                  setRagPrompt(e.target.value);
+                  // typing into prompt de-selects any chosen topic
+                  if (selectedTopic) setSelectedTopic(null);
+                }}
+                placeholder="e.g. Key concepts from Chapter 3, main causes of the event…"
+                rows={2}
+                disabled={!!selectedTopic}
+              />
+              {selectedTopic && (
+                <p className="db-rag-textarea-hint">
+                  Prompt disabled — a topic is selected below. Deselect it to type freely.
+                </p>
+              )}
+            </div>
+
+            {/* OR divider */}
+            <div className="db-rag-or-divider">
+              <span className="db-rag-or-line" />
+              <span className="db-rag-or-label">or</span>
+              <span className="db-rag-or-line" />
+            </div>
+
+            {/* Suggest Topics button */}
+            <div className="db-rag-suggest-row">
+              <button
+                className={`db-rag-suggest-btn${suggestingTopics ? ' loading' : ''}`}
+                onClick={handleSuggestTopics}
+                disabled={suggestingTopics}
+                id="rag-suggest-btn"
+              >
+                {suggestingTopics ? (
+                  <><Loader2 size={14} className="spin" /> Analysing document…</>
+                ) : ragTopics ? (
+                  <><RefreshCw size={14} /> Regenerate Topics</>
+                ) : (
+                  <><Sparkles size={14} /> Suggest Topics from Document</>
+                )}
+              </button>
+              {suggestError && (
+                <p className="db-error" style={{ marginTop: '0.5rem', fontSize: '0.78rem' }}>{suggestError}</p>
+              )}
+            </div>
+
+            {/* Topic cards */}
+            {ragTopics && ragTopics.length > 0 && (
+              <div className="db-rag-topics-grid">
+                {ragTopics.map((topic, i) => (
+                  <button
+                    key={i}
+                    className={`db-rag-topic-card${selectedTopic?.title === topic.title ? ' selected' : ''}`}
+                    onClick={() => {
+                      // toggle: clicking selected topic deselects it
+                      setSelectedTopic(prev => prev?.title === topic.title ? null : topic);
+                      setRagPrompt(''); // clear free prompt when topic chosen
+                    }}
+                    id={`rag-topic-${i}`}
+                  >
+                    <span className="db-rag-topic-radio">
+                      {selectedTopic?.title === topic.title && <Check size={10} />}
+                    </span>
+                    <span className="db-rag-topic-body">
+                      <span className="db-rag-topic-title">{topic.title}</span>
+                      <span className="db-rag-topic-desc">{topic.description}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Options — unlock when ragOptionsActive */}
+            <div className="db-rag-options-header">
+              <span style={{ fontWeight: 600, fontSize: '0.82rem', color: ragOptionsActive ? 'var(--text-1)' : 'var(--text-2)' }}>Options</span>
+              {!ragOptionsActive && <span className="db-coming-soon-badge">Select a topic or enter a prompt first</span>}
+            </div>
+
+            <div className={ragOptionsActive ? undefined : 'db-rag-options-blocked'}>
+              <div className="db-ai-config-row">
+                <div className="db-ai-config-item">
+                  <label className="db-label" htmlFor="rag-num-q">Number of questions</label>
+                  <select
+                    id="rag-num-q"
+                    className="db-ai-select"
+                    value={numQ}
+                    onChange={e => setNumQ(e.target.value)}
+                    disabled={!ragOptionsActive}
+                  >
+                    <option value="3">3 questions</option>
+                    <option value="5">5 questions</option>
+                    <option value="8">8 questions</option>
+                    <option value="10">10 questions</option>
+                  </select>
+                </div>
+                <div className="db-ai-config-item">
+                  <label className="db-label" htmlFor="rag-mix">Question type</label>
+                  <select
+                    id="rag-mix"
+                    className="db-ai-select"
+                    value={mix}
+                    onChange={e => setMix(e.target.value)}
+                    disabled={!ragOptionsActive}
+                  >
+                    <option value="mixed">Mixed (MCQ + T/F)</option>
+                    <option value="mcq">Multiple Choice only</option>
+                    <option value="tf">True / False only</option>
+                  </select>
+                </div>
+              </div>
+              <div style={{ marginTop: '1.25rem' }}>
+                <button
+                  className="btn-ai"
+                  onClick={handleRagGenerate}
+                  id="rag-generate-btn"
+                  disabled={!ragOptionsActive || (quota && !canGenerate)}
+                  style={!ragOptionsActive || (quota && !canGenerate) ? { opacity: 0.35, cursor: 'not-allowed' } : undefined}
+                >
+                  <Sparkles size={15} /> Generate Quiz
+                </button>
+              </div>
+            </div>
+
+          </div>
+        )}
+
+        {/* Placeholder shown when no file yet — blocked options preview */}
+        {!file && (
+          <>
+            <div className="db-rag-options-header">
+              <span style={{ fontWeight: 600, fontSize: '0.82rem', color: 'var(--text-2)' }}>Options</span>
+              <span className="db-coming-soon-badge">🔒 Upload a file to unlock</span>
+            </div>
+            <div className="db-rag-options-blocked">
+              <div className="db-ai-config-row">
+                <div className="db-ai-config-item">
+                  <label className="db-label" htmlFor="rag-num-q-ph">Number of questions</label>
+                  <select id="rag-num-q-ph" className="db-ai-select" value="5" disabled>
+                    <option value="5">5 questions</option>
+                  </select>
+                </div>
+                <div className="db-ai-config-item">
+                  <label className="db-label" htmlFor="rag-mix-ph">Question type</label>
+                  <select id="rag-mix-ph" className="db-ai-select" value="mixed" disabled>
+                    <option value="mixed">Mixed (MCQ + T/F)</option>
+                  </select>
+                </div>
+              </div>
+              <div style={{ marginTop: '1.25rem' }}>
+                <button className="btn-ai" disabled style={{ opacity: 0.35, cursor: 'not-allowed' }}>
+                  <Sparkles size={15} /> Generate Quiz
+                </button>
+              </div>
+            </div>
+          </>
+        )}
       </section>
     </div>
   );

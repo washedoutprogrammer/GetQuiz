@@ -7,26 +7,27 @@ MAX_CONTEXT_CHARS = 15_000
 async def extract_text_from_file(file: UploadFile) -> str:
     """
     Extract plain text from an uploaded file.
-    Supported formats: .txt, .pdf, .docx
+    Supported formats: .txt, .md, .pdf, .docx, .doc
     Returns extracted text capped at MAX_CONTEXT_CHARS characters.
     Raises ValueError for unsupported file types.
     """
     filename = (file.filename or "").lower()
     contents = await file.read()
 
-    if filename.endswith(".txt"):
+    if filename.endswith(".txt") or filename.endswith(".md"):
         text = _extract_txt(contents)
     elif filename.endswith(".pdf"):
         text = _extract_pdf(contents)
-    elif filename.endswith(".docx"):
+    elif filename.endswith(".docx") or filename.endswith(".doc"):
         text = _extract_docx(contents)
     else:
         raise ValueError(
-            f"Unsupported file type. Please upload a .txt, .pdf, or .docx file."
+            f"Unsupported file type. Please upload a .txt, .md, .pdf, or .docx file."
         )
 
     # Cap to avoid token limit overruns
     return text[:MAX_CONTEXT_CHARS].strip()
+
 
 
 def _extract_txt(contents: bytes) -> str:

@@ -46,6 +46,17 @@ export async function generateQuiz(userId = 'anonymous', topic, count = 5, signa
   });
 }
 
+/**
+ * Ask the AI to suggest 3–5 quiz topics from an uploaded document.
+ * Input:  file (File object)
+ * Output: Promise → { ok, data: { topics: [{title, description}] }, error }
+ */
+export async function suggestTopics(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  return apiFetch('/quizzes/suggest-topics', { method: 'POST', body: formData });
+}
+
 /** Get the unified activity log (created / attempted / deleted) for a user. */
 export async function getHistory(userId = 'anonymous') {
   return apiFetch(`/history/?user_id=${encodeURIComponent(userId)}`);

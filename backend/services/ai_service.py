@@ -89,3 +89,59 @@ async def generate_quiz_from_prompt(topic: str, count: int, context: str = "") -
     except Exception as e:
         return {"status": "error", "message": f"OpenRouter Error: {str(e)}"}
 
+
+async def suggest_topics_from_context(context: str) -> dict:
+    """
+    Analyse the extracted document text and return 3-5 quiz-worthy topic suggestions.
+    Each topic has a short title (<=5 words) and a one-sentence description (<=20 words).
+    Returns: { "status": "success", "topics": [{"title": str, "description": str}] }
+          or { "status": "error",   "message": str }
+    """
+    system_instruction = f"""\
+    You are a quiz curriculum analyst for the GetQuiz system.
+    A user has uploaded a document. Read the text below and identify between 3 and 5
+    distinct topics that would make excellent quiz subjects for a student studying this material.
+
+    DOCUMENT TEXT:
+    ---
+    {context}
+    ---
+
+    REQUIREMENTS:
+    1. Choose topics that are genuinely different from one another and are well-supported by the document.
+    2. Each topic title must be 5 words or fewer.
+    3. Each description must be exactly one sentence and 20 words or fewer.
+    4. Return ONLY valid JSON - no markdown, no code fences, no extra text:
+    {{
+      "status": "success",
+      "topics": [
+        {{"title": "Short Topic Title", "description": "One clear sentence describing what this topic covers."}},
+        {{"title": "Another Topic", "description": "Brief description of this topic."}}
+      ]
+    }}
+    5. If the document text is too short, gibberish, or cannot produce meaningful topics, return:
+       {{"status": "error", "message": "Document does not contain enough content to suggest topics."}}
+    """
+
+    payload = {
+        "model": OPENROUTER_MODEL,
+        "messages": [{"role": "user", "content": system_instruction}]
+    }
+    headers = {
+        "Authorization": f"Bearer {settings.OPENROUTER_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(OPENROUTER_ENDPOINT, json=payload, headers=headers, timeout=60)
+        response.raise_for_status()
+        response_text = response.json()["choices"][0]["message"]["content"].strip()
+
+        if response_text.startswith("```json"):
+            response_text = response_text[7:]
+        if response_text.endswith("```"):
+            response_text = response_text[:-3]
+
+        return json.loads(response_text)
+    except Exception as e:
+        return {"status": "error", "message": f"OpenRouter Error: {str(e)}"}
