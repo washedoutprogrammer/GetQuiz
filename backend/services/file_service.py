@@ -1,6 +1,7 @@
 import io
 from fastapi import UploadFile
-
+from docx import Document
+from pypdf import PdfReader
 MAX_CONTEXT_CHARS = 15_000
 
 
@@ -40,8 +41,6 @@ def _extract_txt(contents: bytes) -> str:
 
 def _extract_pdf(contents: bytes) -> str:
     """Extract all text from every page of a PDF."""
-    from pypdf import PdfReader
-
     reader = PdfReader(io.BytesIO(contents))
     pages_text = []
     for page in reader.pages:
@@ -53,8 +52,6 @@ def _extract_pdf(contents: bytes) -> str:
 
 def _extract_docx(contents: bytes) -> str:
     """Extract all paragraph text from a Word document."""
-    from docx import Document
-
     doc = Document(io.BytesIO(contents))
     paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
     return "\n".join(paragraphs)
