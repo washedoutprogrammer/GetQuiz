@@ -355,7 +355,7 @@ export default function Dashboard() {
                   if (activity.type === 'quiz_created') {
                     label = 'CREATED';
                     dotClass = 'db-recent-dot-created';
-                    color = '#4ff8e5'; // cyan color
+                    color = 'var(--recent-created-color, #4ff8e5)';
                   } else if (activity.type === 'quiz_attempted') {
                     label = 'ATTEMPTED';
                     color = '#eab308'; // yellow-500

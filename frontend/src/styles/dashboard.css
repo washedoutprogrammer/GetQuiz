@@ -32,12 +32,18 @@
   --db-surface-2: #f4f1ff;
 
   /* Green overrides — neon mint #3dffa0 is invisible on light backgrounds */
-  --success: #1a9e5a;
-  --success-soft: rgba(26, 158, 90, 0.10);
+  --success: #14803c;
+  --success-soft: rgba(20, 128, 60, 0.10);
+  /* Semi-transparent green surface/border used in quiz option highlights */
+  --success-bg: rgba(20, 128, 60, 0.09);
+  --success-border: rgba(20, 128, 60, 0.45);
 
   /* Cyan overrides — neon cyan #4ff8e5 is invisible on light backgrounds */
-  --cold: #0e8c82;
-  --cold-soft: rgba(14, 140, 130, 0.10);
+  --cold: #0a7a72;
+  --cold-soft: rgba(10, 122, 114, 0.10);
+
+  /* Recent activity label — dark green that reads on lavender */
+  --recent-created-color: #0ba042;
 }
 
 /* Dark mode surface tokens */
@@ -45,6 +51,9 @@
 :root {
   --db-surface: var(--panel);
   --db-surface-2: var(--panel-2);
+  /* Green alpha surfaces — neon mint works fine on dark backgrounds */
+  --success-bg: rgba(61, 255, 160, 0.08);
+  --success-border: rgba(61, 255, 160, 0.35);
 }
 
 /* ── Dashboard Shell ── */
@@ -62,7 +71,7 @@
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  background: var(--db-surface);
+  background: var(--panel);
   border-right: 1px solid var(--border);
   padding: 1.5rem 1rem;
   position: sticky;
@@ -2298,4 +2307,83 @@
   font-family: var(--font-mono);
   color: var(--text-3);
   line-height: 1.4;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Light Mode — Quiz Card Contrast Fixes
+   All selectors are scoped to [data-theme="light"] so dark
+   mode is completely unaffected.
+   ══════════════════════════════════════════════════════════════ */
+
+/* 1. Give cards a visible shadow so they lift off the page bg */
+[data-theme="light"] .db-quiz-card {
+  box-shadow: 0 2px 12px rgba(80, 50, 200, 0.08), 0 0 0 1px rgba(100, 80, 200, 0.1);
+}
+
+[data-theme="light"] .db-quiz-card:hover {
+  box-shadow: 0 6px 28px rgba(80, 50, 200, 0.14), 0 0 0 1px rgba(100, 80, 200, 0.2);
+}
+
+/* 2. Description text — lift from text-3 to text-2 for better readability */
+[data-theme="light"] .db-quiz-card-desc {
+  color: var(--text-2);
+}
+
+/* 3. Tag pills — stronger background and border so they read as pills */
+[data-theme="light"] .db-tag {
+  background: rgba(99, 68, 245, 0.12);
+  border-color: rgba(99, 68, 245, 0.25);
+  color: #4a2fd4;
+  /* deeper indigo for text-on-white contrast */
+}
+
+/* 4. MCQ chip — was rgba(124,92,252,0.1) which is nearly invisible on white */
+[data-theme="light"] .db-meta-mcq {
+  background: rgba(99, 68, 245, 0.12);
+  color: #4a2fd4;
+}
+
+/* 5. T/F chip — cold-soft on white needs stronger teal */
+[data-theme="light"] .db-meta-tf {
+  background: rgba(10, 122, 114, 0.10);
+  color: #0a7a72;
+}
+
+/* 6. Date chip — text-3 is too muted on white; nudge to text-2 */
+[data-theme="light"] .db-quiz-card-date {
+  color: var(--text-2);
+}
+
+/* 7. Base attempt chip — was rgba(99,68,245,0.08) + text-3 on white */
+[data-theme="light"] .db-attempt-chip {
+  background: rgba(99, 68, 245, 0.10);
+  color: #644eca;
+  border-color: rgba(99, 68, 245, 0.2);
+}
+
+/* 8. Best-score chip — amber readable on white, no change needed */
+[data-theme="light"] .db-attempt-best {
+  background: rgba(220, 160, 0, 0.12);
+  color: #b87b07;
+  border-color: rgba(220, 160, 0, 0.25);
+}
+
+/* 9. Last-attempt chip — was neon green on white; use dark green */
+[data-theme="light"] .db-attempt-last {
+  background: rgba(20, 128, 60, 0.10);
+  color: #14803c;
+  border-color: rgba(20, 128, 60, 0.25);
+}
+
+/* 10. "View Questions" button — was rgba(99,68,245,0.08) barely visible */
+[data-theme="light"] .db-quiz-card-open {
+  background: rgba(99, 68, 245, 0.10);
+  color: #4a2fd4;
+  border: 1px solid rgba(99, 68, 245, 0.2);
+}
+
+[data-theme="light"] .db-quiz-card-open:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: transparent;
 }

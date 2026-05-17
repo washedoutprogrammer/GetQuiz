@@ -104,6 +104,18 @@ body {
   transition: background 0.3s ease, color 0.3s ease;
 }
 
+/* Light mode overrides — accessible contrast fixes */
+[data-theme="light"] {
+  /* Neon #3dffa0 is illegible on light backgrounds — use dark forest green */
+  --success: #14803c;
+  --success-soft: rgba(20, 128, 60, 0.10);
+  --success-bg: rgba(20, 128, 60, 0.09);
+  --success-border: rgba(20, 128, 60, 0.45);
+  /* Neon #4ff8e5 is illegible on light backgrounds — use dark teal */
+  --cold: #0a7a72;
+  --cold-soft: rgba(10, 122, 114, 0.10);
+}
+
 /* Light mode body override */
 [data-theme="light"] body {
   background: #f4f1ff;
