@@ -73,7 +73,7 @@ export default function HowItWorks() {
           style={{
             marginTop: 'var(--space-6)',
             padding: 'var(--space-3) var(--space-4)',
-            background: 'var(--accent-soft)',
+            background: 'var(--ink-2)',
             border: '1px solid var(--border-glow)',
             borderRadius: 'var(--radius-lg)',
             display: 'flex',

@@ -1353,7 +1353,7 @@
 
 /* AI section-title tint */
 .db-ai-section-title {
-  color: #10c9a3;
+  color: #2aa58c;
 }
 
 /* Generated results header row */
@@ -2299,4 +2299,3 @@
   color: var(--text-3);
   line-height: 1.4;
 }
-
