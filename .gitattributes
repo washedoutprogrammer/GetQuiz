@@ -1,0 +1,31 @@
+# .gitattributes — enforce consistent line endings across all platforms
+
+# Default: auto-normalise text files
+* text=auto
+
+# Shell scripts MUST use LF on all platforms (Linux/Render requires this)
+*.sh text eol=lf
+
+# Python files — LF
+*.py text eol=lf
+
+# Web source files — LF
+*.js  text eol=lf
+*.jsx text eol=lf
+*.ts  text eol=lf
+*.tsx text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml  text eol=lf
+*.md   text eol=lf
+
+# Binary files — no line-ending conversion
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.woff binary
+*.woff2 binary
