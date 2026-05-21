@@ -1,0 +1,66 @@
+## render.yaml — GetQuiz Render Blueprint
+##
+## This file deploys two services to Render in one click:
+##   1. getquiz-backend  — FastAPI Python Web Service
+##   2. getquiz-frontend — Vite/React Static Site
+##
+## Usage:
+##   - Push this file to your GitHub repo root.
+##   - On Render, go to Blueprints → New Blueprint Instance and point it here.
+##   - After first deploy, copy the backend service URL and set it as
+##     VITE_API_URL in the frontend service's environment variables.
+
+services:
+  # ── Backend: FastAPI ──────────────────────────────────────────────────────────
+  - type: web
+    name: getquiz-backend
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    plan: free          # upgrade to "starter" for always-on; free tier spins down
+    autoDeploy: true
+
+    envVars:
+      # ── Required secrets — fill these in Render's dashboard after first deploy
+      - key: DATABASE_URL
+        sync: false     # Render will prompt you to enter this
+
+      - key: OPENROUTER_API_KEY
+        sync: false     # Render will prompt you to enter this
+
+      # ── Set automatically to allow the frontend origin (update URL after deploy)
+      # Replace the placeholder below with your actual frontend Render URL, e.g.:
+      # https://getquiz-frontend.onrender.com
+      - key: CORS_ORIGINS
+        value: "https://getquiz-frontend.onrender.com"
+
+      # ── Optional — direct Gemini key (unused by default)
+      - key: GEMINI_API_KEY
+        value: ""
+
+  # ── Frontend: Vite + React Static Site ───────────────────────────────────────
+  - type: web
+    name: getquiz-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    plan: free
+    autoDeploy: true
+
+    # SPA fallback — all paths serve index.html so React Router works correctly
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+    envVars:
+      # Set this to your backend service URL after it is deployed.
+      # Format: https://getquiz-backend.onrender.com
+      - key: VITE_API_URL
+        sync: false     # Render will prompt you to enter this
+
+      # Your Clerk publishable key (pk_live_... for production)
+      - key: VITE_CLERK_PUBLISHABLE_KEY
+        sync: false     # Render will prompt you to enter this
