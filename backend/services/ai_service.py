@@ -1,10 +1,13 @@
 import json
+import logging
 import httpx
 from core.config import settings
 from models.schemas import GeneratedQuizResponse
 
+logger = logging.getLogger(__name__)
+
 OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_MODEL = "inclusionai/ring-2.6-1t:free" # Change model based on liking (openrouter has many models)
+OPENROUTER_MODEL = "deepseek/deepseek-v4-flash:free" # Confirmed free model on OpenRouter (see openrouter.ai/models)
 
 async def generate_quiz_from_prompt(topic: str, count: int, context: str = "") -> dict:
     """
@@ -76,7 +79,10 @@ async def generate_quiz_from_prompt(topic: str, count: int, context: str = "") -
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(OPENROUTER_ENDPOINT, json=payload, headers=headers, timeout=60)
-        response.raise_for_status()
+        # Log the raw response for debugging before raising
+        if response.status_code != 200:
+            logger.error(f"OpenRouter error {response.status_code}: {response.text}")
+            return {"status": "error", "message": f"OpenRouter API error {response.status_code}: {response.text[:300]}"}
         response_text = response.json()["choices"][0]["message"]["content"].strip()
 
         # Falsesafe in case model includes markdown tags anyway
@@ -87,6 +93,7 @@ async def generate_quiz_from_prompt(topic: str, count: int, context: str = "") -
 
         return json.loads(response_text)
     except Exception as e:
+        logger.exception("Unexpected error calling OpenRouter")
         return {"status": "error", "message": f"OpenRouter Error: {str(e)}"}
 
 
@@ -134,7 +141,9 @@ async def suggest_topics_from_context(context: str) -> dict:
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(OPENROUTER_ENDPOINT, json=payload, headers=headers, timeout=60)
-        response.raise_for_status()
+        if response.status_code != 200:
+            logger.error(f"OpenRouter suggest-topics error {response.status_code}: {response.text}")
+            return {"status": "error", "message": f"OpenRouter API error {response.status_code}: {response.text[:300]}"}
         response_text = response.json()["choices"][0]["message"]["content"].strip()
 
         if response_text.startswith("```json"):
@@ -144,4 +153,5 @@ async def suggest_topics_from_context(context: str) -> dict:
 
         return json.loads(response_text)
     except Exception as e:
+        logger.exception("Unexpected error calling OpenRouter (suggest-topics)")
         return {"status": "error", "message": f"OpenRouter Error: {str(e)}"}

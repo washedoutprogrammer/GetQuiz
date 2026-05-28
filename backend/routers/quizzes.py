@@ -102,9 +102,10 @@ async def generate_quiz(
 
     ai_response = await generate_quiz_from_prompt(topic, count, context=context)
     if ai_response.get("status") == "error":
+        error_msg = ai_response.get("message", "AI refused to process this topic.")
         raise HTTPException(
             status_code=400,
-            detail=ai_response.get("message", "AI refused to process this topic."),
+            detail=error_msg,  # Now visible in browser DevTools response body
         )
 
     try:
