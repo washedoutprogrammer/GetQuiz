@@ -11,7 +11,7 @@
  * (demo: users can toggle plan in the UI for testing purposes)
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 
 export const PLAN_LIMITS = {
   free:  10,
@@ -101,5 +101,5 @@ export function useQuota(userId = 'anonymous') {
     setPlanState(p);
   }, [userId]);
 
-  return { plan, used, limit, remaining, canGenerate, consume, setPlan };
+  return useMemo(() => ({ plan, used, limit, remaining, canGenerate, consume, setPlan }), [plan, used, limit, remaining, canGenerate, consume, setPlan]);
 }

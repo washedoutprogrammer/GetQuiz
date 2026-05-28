@@ -1,13 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { useUser } from '@clerk/clerk-react';
 import {
   ArrowLeft, Clock, CheckSquare, ToggleLeft,
-  Check, X, ChevronDown, Zap, Loader2
+  Check, X, ChevronDown, Zap, Loader2, Trash2
 } from 'lucide-react';
 import '../styles/dashboard.css';
-import { getQuiz } from '../api/quizzes';
-import { useEffect } from 'react';
+import { getQuiz, deleteQuiz } from '../api/quizzes';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // QuizPreview page — standalone route: /quiz-preview/:quizId
@@ -40,6 +39,17 @@ export default function QuizPreview() {
       setLoading(false);
     })();
   }, [quizId]);
+
+  const handleDelete = async () => {
+    if (window.confirm("Are you sure you want to delete this quiz?")) {
+      const res = await deleteQuiz(quiz.id, userId);
+      if (res.ok) {
+        navigate('/dashboard');
+      } else {
+        alert("Failed to delete quiz.");
+      }
+    }
+  };
 
   if (loading) {
     return (
@@ -114,6 +124,14 @@ export default function QuizPreview() {
             >
               Start Quiz
             </button>
+            <button
+              className="btn db-delete-btn"
+              onClick={handleDelete}
+              aria-label="Delete quiz"
+              style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+            >
+              <Trash2 size={14} /> Delete Quiz
+            </button>
           </div>
         </header>
 
@@ -183,6 +201,11 @@ function QuestionCard({ question, index }) {
                 {question.correct ? <Check size={14} /> : <X size={14} />}
                 Correct answer: <strong>{question.correct ? 'True' : 'False'}</strong>
               </span>
+            </div>
+          )}
+          {question.explanation && (
+            <div style={{ marginTop: '0.75rem', padding: '0.625rem', backgroundColor: 'var(--surface-2)', borderRadius: '0.5rem', fontSize: '0.82rem', color: 'var(--text-2)' }}>
+              <strong style={{ color: 'var(--text-1)' }}>Explanation:</strong> {question.explanation}
             </div>
           )}
         </div>

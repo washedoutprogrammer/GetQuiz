@@ -1,4 +1,4 @@
-import { useState, useReducer, useCallback, useMemo, useEffect, useRef } from 'react';
+import { useState, useReducer, useCallback, useMemo, useEffect, useRef, act } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import {
   Zap, Sun, Moon, LayoutDashboard, PlusCircle, ClipboardList,
@@ -11,8 +11,6 @@ import { useTheme } from '../context/ThemeContext';
 import { useUser, useAuth } from '@clerk/clerk-react';
 import '../styles/dashboard.css';
 import { generateQuiz, getQuizzes, createQuiz, deleteQuiz, getHistory, suggestTopics } from '../api/quizzes';
-import { setTokenGetter } from '../api/client';
-import LoadingOverlay from '../components/LoadingOverlay';
 import Toast from '../components/Toast';
 import { useQuota, PLAN_LIMITS, PLAN_LABELS } from '../lib/useQuota';
 
@@ -24,6 +22,8 @@ import { useQuota, PLAN_LIMITS, PLAN_LABELS } from '../lib/useQuota';
 // ── Reducer for quiz state ─────────────────────────────────────
 function quizzesReducer(state, action) {
   switch (action.type) {
+    case 'SET_QUIZZES':
+      return action.quizzes;
     case 'ADD_QUIZ':
       if (state.some(q => q.id === action.quiz.id)) return state;
       return [action.quiz, ...state];
@@ -37,7 +37,7 @@ function quizzesReducer(state, action) {
 }
 
 // ── Views ──────────────────────────────────────────────────────
-const VIEWS = { HOME: 'home', CREATE: 'create', DETAIL: 'detail', AI_CREATE: 'ai_create' };
+const VIEWS = { HOME: 'home', CREATE: 'create', AI_CREATE: 'ai_create' };
 
 export default function Dashboard() {
   const { theme, toggle } = useTheme();
@@ -52,7 +52,6 @@ export default function Dashboard() {
   const [quizzes, dispatch] = useReducer(quizzesReducer, []);
   const [recentActivities, setRecentActivities] = useState([]);
   const [view, setView] = useState(VIEWS.HOME);
-  const [selectedQuiz, setSelectedQuiz] = useState(null);
   const [search, setSearch] = useState('');
   const [loadingQuizzes, setLoadingQuizzes] = useState(true);
   const [toast, setToast] = useState(null); // { message, type, options }
@@ -61,8 +60,7 @@ export default function Dashboard() {
   // + output: setState containing toast configurations propagated to Toast element
   const showToast = (message, type = 'warn', options = {}) => setToast({ message, type, options });
 
-  // ── Inject Clerk token into the API client once ───────────────
-  useEffect(() => { setTokenGetter(getToken); }, [getToken]);
+  // (setTokenGetter is now initialized once in App.jsx)
 
   // ── [Thêm useRef] Lưu lại các tiến trình có thể huỷ (AbortController)
   // Description: Chứa dictionary key-value { [quizId]: controller } để abort request khi Cancel/Edit
@@ -93,7 +91,7 @@ export default function Dashboard() {
     async function loadData() {
       const resQuizzes = await getQuizzes(userId);
       if (!cancelled && resQuizzes.ok && Array.isArray(resQuizzes.data)) {
-        resQuizzes.data.forEach(quiz => dispatch({ type: 'ADD_QUIZ', quiz }));
+        dispatch({ type: 'SET_QUIZZES', quizzes: resQuizzes.data });
       }
 
       const resHistory = await getHistory(userId);
@@ -121,12 +119,11 @@ export default function Dashboard() {
     const aiQuiz = location.state?.generatedQuiz;
     if (aiQuiz) {
       dispatch({ type: 'ADD_QUIZ', quiz: aiQuiz });
-      setSelectedQuiz(aiQuiz);
-      setView(VIEWS.DETAIL);
+      navigate(`/quiz-preview/${aiQuiz.id}`, { state: { quiz: aiQuiz, userId } });
       window.history.replaceState({}, document.title);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.state?.generatedQuiz]);
+  }, [location.state?.generatedQuiz, userId]);
 
   // ── [Mới] Handle openView state passed via navigation (from Hero) ──
   // Description: Nếu được điều hướng kèm openView ('create' hoặc 'generate'), Dashboard sẽ tự động mở view tương ứng.
@@ -159,15 +156,21 @@ export default function Dashboard() {
 
 
   const openDetail = useCallback((quiz) => {
-    setSelectedQuiz(quiz);
-    setView(VIEWS.DETAIL);
-  }, []);
+    navigate(`/quiz-preview/${quiz.id}`, { state: {quiz, userId }});
+  }, [navigate, userId]);
 
   const handleDelete = useCallback(async (id) => {
+    const quizToRestore = quizzes.find(q => q.id === id);
     dispatch({ type: 'DELETE_QUIZ', id });
-    if (selectedQuiz?.id === id) setView(VIEWS.HOME);
-    await deleteQuiz(id, userId);
-  }, [selectedQuiz, userId]);
+    try {
+      await deleteQuiz(id, userId);
+    } catch (error) {
+      showToast('Failed to delete quiz. Please try again.', 'error');
+      if (quizToRestore) {
+        dispatch({ type: 'ADD_QUIZ', quiz: quizToRestore });
+      }
+    }
+  }, [userId, quizzes]);
 
   const handleCreate = useCallback(async (quiz) => {
     const res = await createQuiz(userId, {
@@ -223,8 +226,8 @@ export default function Dashboard() {
     abortControllers.current[tempId] = controller;
 
     try {
-      // Cập nhật: Gửi kèm file
-      const res = await generateQuiz(userId, prompt, parseInt(numQ, 10), controller.signal, file);
+      // Cập nhật: Gửi kèm file và mix
+      const res = await generateQuiz(userId, prompt, parseInt(numQ, 10), controller.signal, file, mix);
 
       // Request thành công hoặc kết thúc, phải dọn dẹp controller và xoá task khỏi storage
       const currentStored = JSON.parse(localStorage.getItem('getquiz_pending_tasks_v2') || '[]');
@@ -234,14 +237,11 @@ export default function Dashboard() {
       if (res.isAborted) return; // Nếu bị abort chủ động (Cancel/Edit) thì code cancel bên dưới đã dọn UI, không cần xử lý nữa.
 
       if (res.ok) {
-        // Request thành công, xoá task khỏi storage
-        const currentStored = JSON.parse(localStorage.getItem('getquiz_pending_tasks_v2') || '[]');
-        localStorage.setItem('getquiz_pending_tasks_v2', JSON.stringify(currentStored.filter(q => q.id !== tempId)));
-
         // Cập nhật giao diện: thế chỗ dummy quiz bằng quiz mới
         dispatch({ type: 'DELETE_QUIZ', id: tempId });
         dispatch({ type: 'ADD_QUIZ', quiz: res.data.data });
-        showToast("AI Quiz generated successfully!", "success");
+        quota.consume();
+        showToast("AI Quiz generated successfully!", "success", { actionText: "See now" , onAction: () => openDetail(res.data.data) });
       } else {
         // Lỗi từ backend (hoặc parse failed)
         dispatch({ type: 'UPDATE_QUIZ', quiz: { ...skeletonQuiz, isLoading: false, isFailed: true } });
@@ -287,13 +287,15 @@ export default function Dashboard() {
     setView(VIEWS.AI_CREATE);
   }, []);
 
-  const filteredQuizzes = useMemo(() =>
-    quizzes.filter(q =>
+  const filteredQuizzes = useMemo(() => {
+    return quizzes.filter(q =>
       q.title.toLowerCase().includes(search.toLowerCase()) ||
       q.description.toLowerCase().includes(search.toLowerCase()) ||
       q.tags.some(t => t.toLowerCase().includes(search.toLowerCase()))
-    ), [quizzes, search]
-  );
+    );
+  }, [quizzes, search]);
+
+  const handleCloseToast = useCallback(() => setToast(null), []);
 
   return (
     <div className="db-root">
@@ -302,7 +304,7 @@ export default function Dashboard() {
         <Toast
           message={toast.message}
           type={toast.type}
-          onClose={() => setToast(null)}
+          onAction={openDetail}
           {...toast.options}
         />
       )}
@@ -316,7 +318,7 @@ export default function Dashboard() {
 
         <nav className="db-nav" aria-label="Dashboard navigation">
           <button
-            className={`db-nav-item${view === VIEWS.HOME || view === VIEWS.DETAIL ? ' active' : ''}`}
+            className={`db-nav-item${view === VIEWS.HOME ? ' active' : ''}`}
             onClick={() => setView(VIEWS.HOME)}
           >
             <LayoutDashboard size={16} />
@@ -440,14 +442,6 @@ export default function Dashboard() {
             quota={quota}
             onSave={(prompt, numQ, mix, file) => { setInitialAiConfig(null); handleStartAiTask(prompt, numQ, mix, null, file); }}
             onCancel={() => { setInitialAiConfig(null); setView(VIEWS.HOME); }}
-          />
-        )}
-        {view === VIEWS.DETAIL && selectedQuiz && (
-          <QuizDetail
-            quiz={selectedQuiz}
-            userId={userId}
-            onBack={() => setView(VIEWS.HOME)}
-            onDelete={() => handleDelete(selectedQuiz.id)}
           />
         )}
       </main>
@@ -661,103 +655,7 @@ function EmptyState({ message, onAction }) {
   );
 }
 
-// ── QuizDetail View ────────────────────────────────────────────
-function QuizDetail({ quiz, userId, onBack, onDelete }) {
-  const mcqs = quiz.questions.filter(q => q.type === 'mcq').length;
-  const tfs = quiz.questions.filter(q => q.type === 'tf').length;
-  const navigate = useNavigate();
 
-  return (
-    <div className="db-view">
-      <header className="db-view-header">
-        <div>
-          <button className="db-back-btn" onClick={onBack}>
-            <ArrowLeft size={14} /> All Quizzes
-          </button>
-          <h1 className="db-view-title">{quiz.title}</h1>
-          <p className="db-view-sub">{quiz.description}</p>
-        </div>
-        <div className="res-actions" style={{ flexDirection: 'row', justifyContent: 'flex-start', gap: '0.75rem', marginTop: '0.5rem' }}>
-          <button
-            className="btn btn-primary"
-            onClick={() => navigate(`/quiz/${quiz.id}`, { state: { quiz, userId } })}
-            id={`quiz-start-btn-${quiz.id}`}
-            style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}
-          >
-            Start Quiz
-          </button>
-          <button
-            className="btn db-delete-btn"
-            onClick={onDelete}
-            aria-label="Delete quiz"
-            style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}
-          >
-            <Trash2 size={14} /> Delete Quiz
-          </button>
-        </div>
-      </header>
-
-      <div className="db-detail-meta">
-        <span className="db-meta-chip db-meta-mcq"><CheckSquare size={12} /> {mcqs} MCQ</span>
-        <span className="db-meta-chip db-meta-tf"><ToggleLeft size={12} /> {tfs} T/F</span>
-        <span className="db-quiz-card-date"><Clock size={12} /> {quiz.createdAt}</span>
-        {quiz.tags.map(t => <span key={t} className="db-tag">{t}</span>)}
-      </div>
-
-      <div className="db-questions-list">
-        {quiz.questions.map((q, idx) => (
-          <QuestionCard key={q.id} question={q} index={idx} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function QuestionCard({ question, index }) {
-  const [expanded, setExpanded] = useState(false);
-
-  return (
-    <div className={`db-question-card${expanded ? ' expanded' : ''}`}>
-      <button className="db-question-header" onClick={() => setExpanded(e => !e)}>
-        <span className="db-question-num">Q{index + 1}</span>
-        <span className={`db-question-type-badge db-type-${question.type}`}>
-          {question.type === 'mcq' ? <CheckSquare size={11} /> : <ToggleLeft size={11} />}
-          {question.type === 'mcq' ? 'MCQ' : 'True / False'}
-        </span>
-        <span className="db-question-text">{question.text}</span>
-        <ChevronDown size={15} className={`db-question-chevron${expanded ? ' rotated' : ''}`} />
-      </button>
-
-      {expanded && (
-        <div className="db-question-body">
-          {question.type === 'mcq' ? (
-            <ul className="db-options-list">
-              {question.options.map((opt, i) => (
-                <li key={i} className={`db-option${i === question.correctIndex ? ' correct' : ''}`}>
-                  <span className="db-option-letter">{String.fromCharCode(65 + i)}</span>
-                  {opt}
-                  {i === question.correctIndex && <Check size={13} className="db-option-check" />}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <div className="db-tf-answer">
-              <span className={`db-tf-badge db-tf-${question.correct ? 'true' : 'false'}`}>
-                {question.correct ? <Check size={14} /> : <X size={14} />}
-                Correct answer: <strong>{question.correct ? 'True' : 'False'}</strong>
-              </span>
-            </div>
-          )}
-          {question.explanation && (
-            <div style={{ marginTop: '0.75rem', padding: '0.625rem', backgroundColor: 'var(--surface-2)', borderRadius: '0.5rem', fontSize: '0.82rem', color: 'var(--text-2)' }}>
-              <strong style={{ color: 'var(--text-1)' }}>Explanation:</strong> {question.explanation}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ── CreateQuiz View ────────────────────────────────────────────
 const EMPTY_MCQ = () => ({ id: Date.now() + Math.random(), type: 'mcq', text: '', options: ['', '', '', ''], correctIndex: 0, explanation: '' });

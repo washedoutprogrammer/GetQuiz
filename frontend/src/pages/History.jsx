@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useTheme } from '../context/ThemeContext';
 import { useUser, useAuth } from '@clerk/clerk-react';
@@ -9,7 +9,6 @@ import {
 } from 'lucide-react';
 import '../styles/dashboard.css';
 import { getQuizzes, getDeletedQuizzes, getDetailedAttempts, restoreQuiz, permanentDeleteQuiz, getQuiz } from '../api/quizzes';
-import { setTokenGetter } from '../api/client';
 import Toast from '../components/Toast';
 
 export default function History() {
@@ -24,6 +23,7 @@ export default function History() {
   // input: chuỗi text 'CREATED', 'ATTEMPTS', 'DELETED'
   // output: setState để re-render giao diện tab tương ứng
   const [activeTab, setActiveTab] = useState('CREATED');
+  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState(null);
 
@@ -39,29 +39,64 @@ export default function History() {
   // output: ID của quiz được lưu vào state để hiển thị spinner trên card tương ứng
   const [loadingQuizId, setLoadingQuizId] = useState(null);
 
-  // Inject Clerk token so the API client is authenticated
-  useEffect(() => { setTokenGetter(getToken); }, [getToken]);
+  // (setTokenGetter is now initialized once in App.jsx)
 
   // + description: Nhận route state từ Dashboard để mở đúng Tab và hiển thị Modal tương ứng
   // + input: location.state.targetActivity
-  // + output: Update activeTab và gọi state mở chi tiết (modal)
+  // + output: Route to QuizPreview for quiz_created, open modal for quiz_attempted, handle quiz_deleted safely
   useEffect(() => {
     const activity = location.state?.targetActivity;
-    if (activity) {
-      if (activity.type === 'quiz_created') {
-        setActiveTab('CREATED');
-      } else if (activity.type === 'quiz_attempted') {
-        setActiveTab('ATTEMPTS');
-        setSelectedAttempt(activity.attemptId);
-      } else if (activity.type === 'quiz_deleted') {
-        setActiveTab('DELETED');
-        setSelectedDeleted({ id: activity.quizId, title: activity.quizTitle });
-      }
+    if (!activity) return;
 
-      // Clear route state to prevent re-triggering on F5
-      window.history.replaceState({}, document.title);
+    if (activity.type === 'quiz_created') {
+      // Navigate directly to quiz preview — but only if the quiz still exists and is not soft-deleted
+      const openCreatedQuiz = async () => {
+        try {
+          const [{ ok, data }, deletedRes] = await Promise.all([
+            getQuiz(activity.quizId),
+            getDeletedQuizzes(userId)
+          ]);
+          
+          const isDeleted = (data && data.isDeleted) || 
+                            (deletedRes.ok && deletedRes.data.some(q => q.id === activity.quizId));
+
+          if (ok && data && !isDeleted) {
+            navigate(`/quiz-preview/${activity.quizId}`, { state: { quiz: data, userId } });
+          } else {
+            // Quiz was soft-deleted, permanently deleted, or not found
+            setToast({ message: 'Quiz not found. It may have been deleted.', type: 'warn' });
+            setActiveTab('CREATED');
+          }
+        } catch {
+          setToast({ message: 'Quiz not found. It may have been deleted.', type: 'warn' });
+          setActiveTab('CREATED');
+        }
+      };
+      openCreatedQuiz();
+    } else if (activity.type === 'quiz_attempted') {
+      setActiveTab('ATTEMPTS');
+      setSelectedAttempt(activity.attemptId);
+    } else if (activity.type === 'quiz_deleted') {
+      // Safely switch to DELETED tab and open the modal only if it's still deleted
+      setActiveTab('DELETED');
+      if (activity.quizId && activity.quizTitle) {
+        const checkDeletedStatus = async () => {
+          try {
+            const deletedRes = await getDeletedQuizzes(userId);
+            if (deletedRes.ok && deletedRes.data.some(q => q.id === activity.quizId)) {
+              setSelectedDeleted({ id: activity.quizId, title: activity.quizTitle });
+            }
+          } catch {
+            // Ignore error, just stay on DELETED tab without opening modal
+          }
+        };
+        checkDeletedStatus();
+      }
     }
-  }, [location.state?.targetActivity]);
+
+    // Clear route state to prevent re-triggering on F5
+    window.history.replaceState({}, document.title);
+  }, [location.state?.targetActivity, navigate, userId]);
 
   // description: Fetch data based on active tab
   // input: activeTab, userId
@@ -118,6 +153,24 @@ export default function History() {
       setToast({ message: 'Failed to delete quiz', type: 'error' });
     }
   };
+
+  const filteredCreated = useMemo(() => {
+    if (!search) return createdQuizzes;
+    const lowerSearch = search.toLowerCase();
+    return createdQuizzes.filter(q => q.title.toLowerCase().includes(lowerSearch));
+  }, [createdQuizzes, search]);
+
+  const filteredAttempts = useMemo(() => {
+    if (!search) return attempts;
+    const lowerSearch = search.toLowerCase();
+    return attempts.filter(att => att.quiz_title.toLowerCase().includes(lowerSearch));
+  }, [attempts, search]);
+
+  const filteredDeleted = useMemo(() => {
+    if (!search) return deletedQuizzes;
+    const lowerSearch = search.toLowerCase();
+    return deletedQuizzes.filter(q => q.title.toLowerCase().includes(lowerSearch));
+  }, [deletedQuizzes, search]);
 
   // description: Fetch dữ liệu quiz và navigate tới /quiz-preview/:id để người dùng xem trước trước khi bắt đầu làm bài
   // input: quiz cơ bản từ danh sách CREATED (chứa id, title...)
@@ -211,9 +264,9 @@ export default function History() {
             <input
               className="db-search"
               type="text"
-              placeholder="Search quizzes..."
-              disabled
-              style={{ cursor: 'not-allowed', opacity: 0.6 }}
+              placeholder="Search quizzes by title..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
             />
           </div>
         </div>
@@ -228,11 +281,11 @@ export default function History() {
           <div className="tab-content">
             {/* description: Giao diện tab CREATED */}
             {activeTab === 'CREATED' && (
-              createdQuizzes.length === 0 ? (
-                <div className="db-empty"><p className="db-empty-msg">No quizzes created.</p></div>
+              filteredCreated.length === 0 ? (
+                <div className="db-empty"><p className="db-empty-msg">{search ? 'No matches found.' : 'No quizzes created.'}</p></div>
               ) : (
                 <ul className="hist-list">
-                  {createdQuizzes.map(quiz => (
+                  {filteredCreated.map(quiz => (
                     <li key={quiz.id}>
                       {/*
                         Description: Card quiz trong CREATED - click sẽ fetch data và navigate trực tiếp tới /quiz/:id
@@ -264,11 +317,11 @@ export default function History() {
 
             {/* description: Giao diện tab ATTEMPTS */}
             {activeTab === 'ATTEMPTS' && (
-              attempts.length === 0 ? (
-                <div className="db-empty"><p className="db-empty-msg">No attempts found.</p></div>
+              filteredAttempts.length === 0 ? (
+                <div className="db-empty"><p className="db-empty-msg">{search ? 'No matches found.' : 'No attempts found.'}</p></div>
               ) : (
                 <div className="attempts-list" style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-                  {attempts.map(att => (
+                  {filteredAttempts.map(att => (
                     <div key={att.attempt_id} className="attempt-card" style={{ border: '1px solid var(--border-color)', borderRadius: '8px', padding: '1rem', background: 'var(--surface)' }}>
                       <div className="attempt-header" style={{ display: 'flex', justifyContent: 'space-between', cursor: 'pointer' }} onClick={() => setSelectedAttempt(selectedAttempt === att.attempt_id ? null : att.attempt_id)}>
                         <div>
@@ -289,11 +342,11 @@ export default function History() {
 
             {/* description: Giao diện tab DELETED */}
             {activeTab === 'DELETED' && (
-              deletedQuizzes.length === 0 ? (
-                <div className="db-empty"><p className="db-empty-msg">Trash is empty.</p></div>
+              filteredDeleted.length === 0 ? (
+                <div className="db-empty"><p className="db-empty-msg">{search ? 'No matches found.' : 'Trash is empty.'}</p></div>
               ) : (
                 <ul className="hist-list">
-                  {deletedQuizzes.map(quiz => (
+                  {filteredDeleted.map(quiz => (
                     <li key={quiz.id}>
                       <button className="hist-card" onClick={() => setSelectedDeleted(quiz)}>
                         <div className="hist-card-body">
