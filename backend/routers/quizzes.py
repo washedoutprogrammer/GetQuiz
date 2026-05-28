@@ -38,6 +38,7 @@ def _quiz_to_response(quiz, include_questions: bool = False, stats: dict = None)
         "createdAt": quiz.created_time.strftime("%Y-%m-%d"),
         "questionCount": len(quiz.questions),
         "questions": questions,
+        "isDeleted": quiz.is_deleted,
         # attempt stats (0 / None when no attempts yet)
         "attemptCount": s.get("attemptCount", 0),
         "bestScore": s.get("bestScore"),

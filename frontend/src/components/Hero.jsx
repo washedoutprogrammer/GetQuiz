@@ -2,7 +2,6 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Sparkles, ChevronRight, PlusCircle } from 'lucide-react';
 import { generateQuiz } from '../api/quizzes';
-import LoadingOverlay from './LoadingOverlay';
 import { FallingPattern } from './ui/falling-pattern';
 
 // Lightweight star field using pure CSS/JS — no library needed
@@ -166,7 +165,6 @@ export default function Hero() {
 
   //Add 3 loading state
   const navigate = useNavigate();
-  const [loadingState, setLoadingState] = useState('idle'); // 'idle' | 'checking' | 'generating'
 
   const EXAMPLE_PROMPTS = [
     'Make a 10-question quiz about the Solar System',
@@ -223,7 +221,6 @@ export default function Hero() {
   return (
     // Loading style (blur screen + loading animation + loading text)
     <>
-      <LoadingOverlay loadingState={loadingState} />
 
       <section className="hero" id="hero" aria-labelledby="hero-heading">
         {/* Animated falling-pattern background */}

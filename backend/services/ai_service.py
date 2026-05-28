@@ -7,7 +7,7 @@ from models.schemas import GeneratedQuizResponse
 logger = logging.getLogger(__name__)
 
 OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_MODEL = "deepseek/deepseek-v4-flash:free" # Confirmed free model on OpenRouter (see openrouter.ai/models)
+OPENROUTER_MODEL = "openrouter/owl-alpha" # Confirmed free model on OpenRouter (see openrouter.ai/models)
 
 async def generate_quiz_from_prompt(topic: str, count: int, context: str = "") -> dict:
     """

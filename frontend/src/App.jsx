@@ -1,12 +1,15 @@
+import { useEffect } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { ThemeProvider } from './context/ThemeContext';
-import { SignedIn, SignedOut, RedirectToSignIn, SignIn, SignUp } from '@clerk/clerk-react';
+import { SignedIn, SignedOut, RedirectToSignIn, SignIn, SignUp, useAuth } from '@clerk/clerk-react';
+import { setTokenGetter } from './api/client';
 import Landing from './pages/Landing';
 import Dashboard from './pages/Dashboard';
 import History from './pages/History';
 import QuizSession from './pages/QuizSession';
 import QuizPreview from './pages/QuizPreview';
 import Results from './pages/Results';
+import NotFound from './pages/NotFound';
 
 /** Wrap a component so unauthenticated users are redirected to Clerk sign-in. */
 function ProtectedRoute({ children }) {
@@ -27,6 +30,12 @@ export default function App() {
 }
 
 function AppRoutes() {
+  const { getToken } = useAuth();
+
+  // ── Inject Clerk token into the API client exactly once ───────
+  // Centralized here so Dashboard and History don't each call setTokenGetter.
+  useEffect(() => { setTokenGetter(getToken); }, [getToken]);
+
   return (
     <Routes>
       {/* Public */}
@@ -59,6 +68,7 @@ function AppRoutes() {
       <Route path="/results/:sessionId" element={
         <ProtectedRoute><Results /></ProtectedRoute>
       } />
+      <Route path="*" element={<NotFound />} />
     </Routes>
   );
 }
