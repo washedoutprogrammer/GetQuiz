@@ -14,11 +14,6 @@ import { generateQuiz, getQuizzes, createQuiz, deleteQuiz, getHistory, suggestTo
 import Toast from '../components/Toast';
 import { useQuota, PLAN_LIMITS, PLAN_LABELS } from '../lib/useQuota';
 
-
-// ── Mock recent activity feed (replaced by live quiz state — see sidebar below)
-
-
-
 // ── Reducer for quiz state ─────────────────────────────────────
 function quizzesReducer(state, action) {
   switch (action.type) {
@@ -54,17 +49,10 @@ export default function Dashboard() {
   const [view, setView] = useState(VIEWS.HOME);
   const [search, setSearch] = useState('');
   const [loadingQuizzes, setLoadingQuizzes] = useState(true);
-  const [toast, setToast] = useState(null); // { message, type, options }
-  // + description: Allow generic options mapping to Toast features like action buttons
-  // + input: message (str), type (str), options (object from caller)
-  // + output: setState containing toast configurations propagated to Toast element
+  const [toast, setToast] = useState(null);
+
   const showToast = (message, type = 'warn', options = {}) => setToast({ message, type, options });
 
-  // (setTokenGetter is now initialized once in App.jsx)
-
-  // ── [Thêm useRef] Lưu lại các tiến trình có thể huỷ (AbortController)
-  // Description: Chứa dictionary key-value { [quizId]: controller } để abort request khi Cancel/Edit
-  // Input: không có. Output: Cung cấp dictionary quản lý abort controller theo id.
   const abortControllers = useRef({});
 
   const [initialAiConfig, setInitialAiConfig] = useState(null);
@@ -81,7 +69,7 @@ export default function Dashboard() {
           dispatch({ type: 'ADD_QUIZ', quiz: { ...q, isFailed: true } });
         });
       }
-    } catch { /* parse error */ }
+    } catch {  }
   }, []);
 
   // ── Load quizzes and history from backend on mount ───────────────────────
@@ -107,9 +95,6 @@ export default function Dashboard() {
 
   const location = useLocation();
 
-  // + description: Điều hướng người dùng tới History.jsx và truyền data activity để mở đúng tab/modal
-  // + input: đối tượng activity lấy từ danh sách recentActivities
-  // + output: chuyển route sang /history kèm theo state targetActivity
   const handleActivityClick = useCallback((activity) => {
     navigate('/history', { state: { targetActivity: activity } });
   }, [navigate]);
@@ -125,10 +110,6 @@ export default function Dashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.state?.generatedQuiz, userId]);
 
-  // ── [Mới] Handle openView state passed via navigation (from Hero) ──
-  // Description: Nếu được điều hướng kèm openView ('create' hoặc 'generate'), Dashboard sẽ tự động mở view tương ứng.
-  // Input: location.state.openView
-  // Output: setView(VIEWS.CREATE hoặc VIEWS.AI_CREATE)
   useEffect(() => {
     const ov = location.state?.openView;
     if (ov === 'create') {
@@ -185,10 +166,6 @@ export default function Dashboard() {
     setView(VIEWS.HOME);
   }, [userId]);
 
-  // ── [Mới] Khởi chạy tiến trình tạo AI ngầm (Background Task)
-  // Description: Thiết lập Skeleton card, ghi vào localStorage, thiết lập AbortController rồi call API fetch.
-  // Input: prompt (string), numQ (string/number), mix (string), customId (optional string phục vụ retry)
-  // Output: Update state quizzes, gửi request về backend, gọi dispatch / showToast phụ thuộc payload api trả về.
   const handleStartAiTask = useCallback(async (prompt, numQ, mix, customId = null, file = null) => {
     const tempId = customId || `loading_${Date.now()}`;
     const skeletonQuiz = {
@@ -203,62 +180,48 @@ export default function Dashboard() {
       aiTaskParams: { prompt, numQ, mix } // File is intentionally excluded — cannot store File in localStorage
     };
 
-    // Ghi vào state, dùng UPDATE_QUIZ để override card nếu đang là retry (tức isFailed = true trước đó)
-    // Nếu chưa từng có trong state, UPDATE_QUIZ trong reducer cũ không thêm mới, nên gọi cả ADD_QUIZ nếu không có customId
     if (customId) {
       dispatch({ type: 'UPDATE_QUIZ', quiz: skeletonQuiz });
     } else {
       dispatch({ type: 'ADD_QUIZ', quiz: skeletonQuiz });
     }
 
-    // Chuyển view về Home
     setView(VIEWS.HOME);
     showToast("We will announce when the task completed. Feel free to enjoy other tasks!", "success");
 
-    // Ghi vào localStorage để chống F5
     const stored = JSON.parse(localStorage.getItem('getquiz_pending_tasks_v2') || '[]');
     const newStored = stored.filter(q => q.id !== tempId);
     newStored.push(skeletonQuiz);
     localStorage.setItem('getquiz_pending_tasks_v2', JSON.stringify(newStored));
 
-    // Khởi tạo AbortController gắn vào danh sách
     const controller = new AbortController();
     abortControllers.current[tempId] = controller;
 
     try {
-      // Cập nhật: Gửi kèm file và mix
       const res = await generateQuiz(userId, prompt, parseInt(numQ, 10), controller.signal, file, mix);
 
-      // Request thành công hoặc kết thúc, phải dọn dẹp controller và xoá task khỏi storage
       const currentStored = JSON.parse(localStorage.getItem('getquiz_pending_tasks_v2') || '[]');
       localStorage.setItem('getquiz_pending_tasks_v2', JSON.stringify(currentStored.filter(q => q.id !== tempId)));
       delete abortControllers.current[tempId];
 
-      if (res.isAborted) return; // Nếu bị abort chủ động (Cancel/Edit) thì code cancel bên dưới đã dọn UI, không cần xử lý nữa.
-
+      if (res.isAborted) return;
       if (res.ok) {
-        // Cập nhật giao diện: thế chỗ dummy quiz bằng quiz mới
         dispatch({ type: 'DELETE_QUIZ', id: tempId });
         dispatch({ type: 'ADD_QUIZ', quiz: res.data.data });
         quota.consume();
         showToast("AI Quiz generated successfully!", "success", { actionText: "See now" , onAction: () => openDetail(res.data.data) });
       } else {
-        // Lỗi từ backend (hoặc parse failed)
         dispatch({ type: 'UPDATE_QUIZ', quiz: { ...skeletonQuiz, isLoading: false, isFailed: true } });
         showToast(`Failed: ${res.error}`, "error");
       }
 
     } catch (err) {
       if (err.name === 'AbortError') return; // React fetch abort chủ động
-      // Mất mạng
       dispatch({ type: 'UPDATE_QUIZ', quiz: { ...skeletonQuiz, isLoading: false, isFailed: true } });
       showToast("Network error generating AI Quiz", "error");
     }
   }, [userId, dispatch, quota]);
 
-  // ── [Mới] Huỷ tiến trình tạo AI
-  // Description: Gọi controller.abort() huỷ request và dẹp tan state skeleton.
-  // Input: id (string) của thẻ quiz
   const handleCancelAiTask = useCallback((id) => {
     if (abortControllers.current[id]) {
       abortControllers.current[id].abort();
@@ -270,9 +233,6 @@ export default function Dashboard() {
     showToast("Process Cancelled", "warn");
   }, []);
 
-  // ── [Mới] Chỉnh sửa tiến trình AI đang tạo
-  // Description: Tương tự Cancel nhưng bảo lưu input values vào màn hình Edit
-  // Input: quiz thẻ (object) chứa thông tin aiTaskParams
   const handleEditAiTask = useCallback((quiz) => {
     if (abortControllers.current[quiz.id]) {
       abortControllers.current[quiz.id].abort();
@@ -282,7 +242,6 @@ export default function Dashboard() {
     const currentStored = JSON.parse(localStorage.getItem('getquiz_pending_tasks_v2') || '[]');
     localStorage.setItem('getquiz_pending_tasks_v2', JSON.stringify(currentStored.filter(q => q.id !== quiz.id)));
 
-    // Đẩy parameter cũ qua form
     setInitialAiConfig(quiz.aiTaskParams);
     setView(VIEWS.AI_CREATE);
   }, []);
@@ -930,8 +889,6 @@ function TFEditor({ q, idx, errors, onUpdate, onRemove }) {
 
 // ── AiCreateQuiz View ──────────────────────────────────────────
 
-// Description: Form cấu hình tạo AI — hai panel: free-prompt và RAG document context
-// Input: initialConfig (nếu có để phục hồi Edit), userId (string), quota object
 function AiCreateQuiz({ userId = 'anonymous', initialConfig, quota, onSave, onCancel }) {
   // Nếu có initialConfig (do người dùng bấm Edit), các trường sẽ được điền tự động
   const [prompt, setPrompt] = useState(initialConfig?.prompt || '');
@@ -940,7 +897,6 @@ function AiCreateQuiz({ userId = 'anonymous', initialConfig, quota, onSave, onCa
   const [promptError, setPromptError] = useState('');
   const [file, setFile] = useState(null);
   const [dragOver, setDragOver] = useState(false);
-  // RAG panel state
   const [ragPrompt, setRagPrompt] = useState('');
   const [ragTopics, setRagTopics] = useState(null);   // null = not fetched, [] = empty
   const [selectedTopic, setSelectedTopic] = useState(null); // { title, description } | null
@@ -959,14 +915,12 @@ function AiCreateQuiz({ userId = 'anonymous', initialConfig, quota, onSave, onCa
   const clearFile = () => {
     setFile(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
-    // Reset all RAG-related state when file is removed
     setRagPrompt('');
     setRagTopics(null);
     setSelectedTopic(null);
     setSuggestError('');
   };
 
-  // Drag-and-drop handlers for the RAG dropzone
   const handleDragOver = (e) => { e.preventDefault(); setDragOver(true); };
   const handleDragLeave = () => setDragOver(false);
   const handleDrop = (e) => {
@@ -976,9 +930,6 @@ function AiCreateQuiz({ userId = 'anonymous', initialConfig, quota, onSave, onCa
     if (dropped) setFile(dropped);
   };
 
-  // Description: Handle Generate Quiz button (free-prompt path)
-  // Input: event from button click
-  // Output: Gọi onSave để khởi tạo Background task tại Dashboard
   const handleGenerate = () => {
     if (!canGenerate) {
       setPromptError('Daily limit reached. Please upgrade your plan to continue.');
@@ -989,10 +940,10 @@ function AiCreateQuiz({ userId = 'anonymous', initialConfig, quota, onSave, onCa
       return;
     }
     setPromptError('');
-    onSave(prompt, numQ, mix, null); // file intentionally null — free-prompt path
+    onSave(prompt, numQ, mix, null);
   };
 
-  // Description: Fetch AI-suggested topics from the uploaded document
+  // Fetch AI-suggested topics from the uploaded document
   const handleSuggestTopics = async () => {
     setSuggestingTopics(true);
     setSuggestError('');
@@ -1007,14 +958,13 @@ function AiCreateQuiz({ userId = 'anonymous', initialConfig, quota, onSave, onCa
     }
   };
 
-  // Description: Generate quiz from RAG panel (uses selectedTopic title OR ragPrompt)
+  // Generate quiz from RAG panel (uses selectedTopic title OR ragPrompt)
   // Always sends file to the backend for context grounding
   const handleRagGenerate = () => {
     const topic = selectedTopic ? selectedTopic.title : ragPrompt.trim();
     onSave(topic, numQ, mix, file);
   };
 
-  // Options unlock condition for the RAG panel
   const ragOptionsActive = !!file && (ragPrompt.trim().length > 0 || selectedTopic !== null);
 
   return (
@@ -1160,7 +1110,6 @@ function AiCreateQuiz({ userId = 'anonymous', initialConfig, quota, onSave, onCa
                 value={ragPrompt}
                 onChange={e => {
                   setRagPrompt(e.target.value);
-                  // typing into prompt de-selects any chosen topic
                   if (selectedTopic) setSelectedTopic(null);
                 }}
                 placeholder="e.g. Key concepts from Chapter 3, main causes of the event…"
@@ -1210,7 +1159,6 @@ function AiCreateQuiz({ userId = 'anonymous', initialConfig, quota, onSave, onCa
                     key={i}
                     className={`db-rag-topic-card${selectedTopic?.title === topic.title ? ' selected' : ''}`}
                     onClick={() => {
-                      // toggle: clicking selected topic deselects it
                       setSelectedTopic(prev => prev?.title === topic.title ? null : topic);
                       setRagPrompt(''); // clear free prompt when topic chosen
                     }}

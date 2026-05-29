@@ -8,7 +8,6 @@ export function AuthProvider({ children }) {
   const [token, setToken] = useState(() => localStorage.getItem('gq-token'));
   const [loading, setLoading] = useState(true);
 
-  /* On mount, restore session */
   useEffect(() => {
     const stored = localStorage.getItem('gq-token');
     if (!stored) { setLoading(false); return; }

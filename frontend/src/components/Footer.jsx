@@ -29,7 +29,6 @@ export default function Footer() {
     <footer role="contentinfo">
       <div className="footer-inner">
         <div className="footer-top">
-          {/* Brand column */}
           <div>
             <div className="nav-logo" style={{ marginBottom: 'var(--space-2)' }}>
               <div className="nav-logo-icon" aria-hidden="true">
@@ -41,7 +40,6 @@ export default function Footer() {
               AI-powered quiz generation for educators, L&D teams, and marketers.
               Build better quizzes, faster.
             </p>
-            {/* Social */}
             <div className="footer-social" style={{ marginTop: 'var(--space-3)' }}>
               {[
                 { Icon: Twitter, label: 'GetQuiz on Twitter' },
@@ -60,7 +58,6 @@ export default function Footer() {
             </div>
           </div>
 
-          {/* Link columns */}
           {Object.entries(FOOTER_LINKS).map(([col, links]) => (
             <nav key={col} aria-label={`${col} links`}>
               <div className="footer-col-title">{col}</div>

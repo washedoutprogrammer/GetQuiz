@@ -69,9 +69,6 @@ class Quizzes(SQLModel, table=True):
     )
     created_time: datetime = Field(default_factory=datetime.utcnow)
     
-    # description: Thêm cờ đánh dấu xóa mềm cho Quiz
-    # input: giá trị boolean (True/False) từ các API
-    # output: lưu trạng thái xóa mềm vào Database
     is_deleted: bool = Field(default=False)
     
     user: "Users" = Relationship(back_populates="quizzes")

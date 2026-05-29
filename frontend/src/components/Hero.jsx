@@ -163,7 +163,6 @@ export default function Hero() {
   const [prompt, setPrompt] = useState('');
   const inputRef = useRef(null);
 
-  //Add 3 loading state
   const navigate = useNavigate();
 
   const EXAMPLE_PROMPTS = [
@@ -185,19 +184,15 @@ export default function Hero() {
       inputRef.current?.focus();
       return;
     }
-    //Add executing process of 3 added states
 
     try {
-      // 1. Open Overlay
       setLoadingState('checking');
 
       // (UX Optional) slightly delay to prevent UI flicker
-      // then switch to a generating state
       setTimeout(() => {
         setLoadingState(prev => prev === 'checking' ? 'generating' : prev);
       }, 1500);
 
-      // 2. Call API endpoint
       const res = await generateQuiz(prompt, 10);
 
       if (!res.ok) {
@@ -206,10 +201,8 @@ export default function Hero() {
         return;
       }
 
-      // 3. Close Overlay
       setLoadingState('idle');
 
-      // 4. Pass API client result payload
       navigate('/dashboard', { state: { generatedQuiz: res.data.data } });
 
     } catch (err) {
@@ -219,7 +212,6 @@ export default function Hero() {
   }, [prompt, navigate]);
 
   return (
-    // Loading style (blur screen + loading animation + loading text)
     <>
 
       <section className="hero" id="hero" aria-labelledby="hero-heading">

@@ -34,16 +34,8 @@ export default function History() {
   const [selectedAttempt, setSelectedAttempt] = useState(null);
   const [selectedDeleted, setSelectedDeleted] = useState(null);
 
-  // description: Trạng thái loading khi đang fetch dữ liệu quiz từ CREATED tab
-  // input: quiz.id (string) của quiz đang được tải
-  // output: ID của quiz được lưu vào state để hiển thị spinner trên card tương ứng
   const [loadingQuizId, setLoadingQuizId] = useState(null);
 
-  // (setTokenGetter is now initialized once in App.jsx)
-
-  // + description: Nhận route state từ Dashboard để mở đúng Tab và hiển thị Modal tương ứng
-  // + input: location.state.targetActivity
-  // + output: Route to QuizPreview for quiz_created, open modal for quiz_attempted, handle quiz_deleted safely
   useEffect(() => {
     const activity = location.state?.targetActivity;
     if (!activity) return;
@@ -87,7 +79,6 @@ export default function History() {
               setSelectedDeleted({ id: activity.quizId, title: activity.quizTitle });
             }
           } catch {
-            // Ignore error, just stay on DELETED tab without opening modal
           }
         };
         checkDeletedStatus();
@@ -98,9 +89,6 @@ export default function History() {
     window.history.replaceState({}, document.title);
   }, [location.state?.targetActivity, navigate, userId]);
 
-  // description: Fetch data based on active tab
-  // input: activeTab, userId
-  // output: cập nhật state tương ứng với tab (createdQuizzes, attempts, deletedQuizzes)
   useEffect(() => {
     let cancelled = false;
     async function load() {
@@ -126,9 +114,6 @@ export default function History() {
     return () => { cancelled = true; };
   }, [activeTab, userId]);
 
-  // description: Xử lý click khôi phục quiz
-  // input: id của quiz cần khôi phục
-  // output: Gọi API và update UI
   const handleRestore = async (id) => {
     const res = await restoreQuiz(id, userId);
     if (res.ok) {
@@ -140,9 +125,6 @@ export default function History() {
     }
   };
 
-  // description: Xử lý click xóa vĩnh viễn quiz
-  // input: id của quiz cần xóa
-  // output: Gọi API và update UI
   const handlePermanentDelete = async (id) => {
     const res = await permanentDeleteQuiz(id, userId);
     if (res.ok) {
@@ -172,9 +154,6 @@ export default function History() {
     return deletedQuizzes.filter(q => q.title.toLowerCase().includes(lowerSearch));
   }, [deletedQuizzes, search]);
 
-  // description: Fetch dữ liệu quiz và navigate tới /quiz-preview/:id để người dùng xem trước trước khi bắt đầu làm bài
-  // input: quiz cơ bản từ danh sách CREATED (chứa id, title...)
-  // output: navigate('/quiz-preview/:id', { state: { quiz, userId } }) khi fetch xong
   const handleOpenQuiz = async (quiz) => {
     if (loadingQuizId) return; // chặn double-click khi đang tải
     setLoadingQuizId(quiz.id);
@@ -228,9 +207,8 @@ export default function History() {
           </div>
         </header>
 
-        {/* description: Tab Navigation + Search Bar cùng hàng */}
-        {/* input: activeTab state */}
-        {/* output: Giao diện chuyển tab — CSS class 'active' xác định tab đang được chọn */}
+        {/* Tab Navigation + Search Bar*/}
+
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem', borderBottom: '1px solid var(--border)', gap: '1rem' }}>
           {/* Tab buttons */}
           <div className="tabs-container" style={{ borderBottom: 'none', marginBottom: 0, flex: '0 0 auto' }}>
@@ -254,11 +232,7 @@ export default function History() {
             </button>
           </div>
 
-          {/*
-            Description: Search bar tĩnh phía phải hàng tab — chưa có logic tìm kiếm
-            Input: (static UI, chưa kết nối state)
-            Output: hiển thị ô tìm kiếm với icon và placeholder
-          */}
+          {/* Search bar */}
           <div className="db-search-wrap" style={{ margin: 0, flex: '1', maxWidth: '320px', paddingBottom: '0.5rem' }}>
             <Search size={14} className="db-search-icon" />
             <input
@@ -279,7 +253,7 @@ export default function History() {
           </div>
         ) : (
           <div className="tab-content">
-            {/* description: Giao diện tab CREATED */}
+            {/* Tab CREATED */}
             {activeTab === 'CREATED' && (
               filteredCreated.length === 0 ? (
                 <div className="db-empty"><p className="db-empty-msg">{search ? 'No matches found.' : 'No quizzes created.'}</p></div>
@@ -287,11 +261,6 @@ export default function History() {
                 <ul className="hist-list">
                   {filteredCreated.map(quiz => (
                     <li key={quiz.id}>
-                      {/*
-                        Description: Card quiz trong CREATED - click sẽ fetch data và navigate trực tiếp tới /quiz/:id
-                        Input: quiz object từ danh sách createdQuizzes
-                        Output: gọi handleOpenQuiz, hiển thị spinner ngay trên card khi đang tải
-                      */}
                       <button
                         className="hist-card"
                         onClick={() => handleOpenQuiz(quiz)}
@@ -315,7 +284,7 @@ export default function History() {
               )
             )}
 
-            {/* description: Giao diện tab ATTEMPTS */}
+            {/* Tab ATTEMPTS */}
             {activeTab === 'ATTEMPTS' && (
               filteredAttempts.length === 0 ? (
                 <div className="db-empty"><p className="db-empty-msg">{search ? 'No matches found.' : 'No attempts found.'}</p></div>
@@ -333,14 +302,13 @@ export default function History() {
                           <ChevronRight size={20} style={{ transform: selectedAttempt === att.attempt_id ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }} />
                         </div>
                       </div>
-                      {/* Removed inline attempt-details to use a Modal instead */}
                     </div>
                   ))}
                 </div>
               )
             )}
 
-            {/* description: Giao diện tab DELETED */}
+            {/* Tab DELETED */}
             {activeTab === 'DELETED' && (
               filteredDeleted.length === 0 ? (
                 <div className="db-empty"><p className="db-empty-msg">{search ? 'No matches found.' : 'Trash is empty.'}</p></div>
@@ -367,36 +335,18 @@ export default function History() {
       </main>
 
 
-      {/* description: Modal hiển thị chi tiết Attempt */}
-      {/* input: selectedAttempt ID, attempts array */}
-      {/* output: Hiển thị Modal bao gồm danh sách câu hỏi, options, và đáp án */}
       {selectedAttempt && (
         (() => {
           const att = attempts.find(a => a.attempt_id === selectedAttempt);
           if (!att) return null;
           return (
-            /*
-              Description: Modal container toàn màn hình - nhấn vào overlay để đóng modal
-              Input: sự kiện click từ người dùng (onClick)
-              Output: gọi setSelectedAttempt(null) để đóng modal
-            */
+            /* Description: Modal container */
             <div className="modal-overlay" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }} onClick={() => setSelectedAttempt(null)}>
 
-              {/*
-                Description: Hộp modal chính với layout 2 cột (flexbox row): sidebar trái + nội dung phải
-                Input: dữ liệu attempt (att) đã được tìm thấy từ mảng attempts
-                Output: giao diện modal hoàn chỉnh với sidebar điều hướng và danh sách câu hỏi
-              */}
               <div
                 style={{ display: 'flex', flexDirection: 'row', background: '#080810', borderRadius: '16px', width: '92%', maxWidth: '1050px', maxHeight: '90vh', overflow: 'hidden', boxShadow: '0 25px 60px rgba(0,0,0,0.6)' }}
                 onClick={(e) => e.stopPropagation()}
               >
-
-                {/*
-                  Description: Sidebar trái - liệt kê số thứ tự mỗi câu hỏi trong hình tròn màu đỏ/xanh
-                  Input: att.details (mảng câu trả lời), is_correct của từng câu
-                  Output: lưới 4 cột chứa các nút hình tròn, bấm vào sẽ scroll tới câu hỏi có id="q-<idx>"
-                */}
                 <div style={{
                   width: '212px', minWidth: '212px',
                   background: 'rgba(255,255,255,0.03)',
@@ -409,11 +359,7 @@ export default function History() {
                   overflowY: 'auto',
                 }}>
                   {att.details.map((ans, idx) => (
-                    /*
-                      Description: Nút hình tròn điều hướng từng câu hỏi
-                      Input: is_correct của câu hỏi idx, phần tử DOM với id="q-<idx>"
-                      Output: scroll mượt đến câu hỏi tương ứng trong cột phải khi click
-                    */
+
                     <button
                       key={idx}
                       title={`Jump to Q${idx + 1}`}
@@ -438,14 +384,8 @@ export default function History() {
                   ))}
                 </div>
 
-                {/*
-                  Description: Cột phải - header thông tin attempt + danh sách chi tiết từng câu hỏi có thể scroll
-                  Input: att.quiz_title, att.score, att.end_time, att.details
-                  Output: hiển thị tiêu đề, điểm số và toàn bộ nội dung câu hỏi với options, đáp án, giải thích
-                */}
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, position: 'relative' }}>
 
-                  {/* Nút X đóng modal */}
                   <button
                     onClick={() => setSelectedAttempt(null)}
                     style={{ position: 'absolute', top: '1rem', right: '1rem', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-color)', zIndex: 1 }}
@@ -453,7 +393,6 @@ export default function History() {
                     <X size={22} />
                   </button>
 
-                  {/* Header: tên quiz + thời gian + điểm */}
                   <div style={{ padding: '2rem 3rem 1rem 2rem', borderBottom: '1px solid rgba(255,255,255,0.08)', flexShrink: 0 }}>
                     <h2 style={{ margin: '0 0 0.4rem', fontSize: '1.4rem', fontWeight: '700' }}>{att.quiz_title}</h2>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', opacity: 0.75 }}>
@@ -467,19 +406,10 @@ export default function History() {
                     </div>
                   </div>
 
-                  {/*
-                    Description: Danh sách các câu hỏi có thể scroll
-                    Input: att.details (mảng gồm question_text, options, chosen_answer, correct_answer, explanation, is_correct)
-                    Output: render từng câu hỏi với id="q-<idx>" để sidebar có thể scroll đến đúng vị trí
-                  */}
+                  {/* List of question card */}
                   <div style={{ flex: 1, overflowY: 'auto', padding: '2rem' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
                       {att.details.map((ans, idx) => (
-                        /*
-                          Description: Khối hiển thị một câu hỏi - id là mục tiêu scroll từ sidebar
-                          Input: ans (question_text, options, chosen_answer, correct_answer, explanation, is_correct), idx
-                          Output: render câu hỏi + options màu xanh/đỏ + dòng correct answer + explanation block
-                        */
                         <div
                           id={`q-${idx}`}
                           key={idx}
@@ -490,11 +420,7 @@ export default function History() {
                             {ans.question_text}
                           </p>
 
-                          {/*
-                            Description: Danh sách các lựa chọn - tô màu xanh nếu đúng, đỏ nếu user chọn sai
-                            Input: ans.options (mảng string), ans.chosen_answer, ans.correct_answer
-                            Output: render từng option với màu tương ứng
-                          */}
+                          {/* List of answer questions: green if true, red if false */}
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginBottom: '1.25rem' }}>
                             {(ans.options && ans.options.length > 0 ? ans.options : [ans.correct_answer, ans.chosen_answer].filter(Boolean)).map((opt, optIdx) => {
                               const isChosen = opt === ans.chosen_answer;
@@ -509,18 +435,14 @@ export default function History() {
                             })}
                           </div>
 
-                          {/* Dòng thông báo đáp án đúng */}
+                          {/* True anwser notification */}
                           <div style={{ background: 'rgba(61,255,160,0.05)', padding: '0.6rem 1rem', borderRadius: '6px', borderLeft: '3px solid #3dffa0', marginBottom: '1rem', color: '#3dffa0' }}>
                             <p style={{ margin: 0, fontWeight: '500', fontSize: '0.9rem' }}>
                               The correct answer is: <strong>{ans.correct_answer}</strong>
                             </p>
                           </div>
 
-                          {/*
-                            Description: Khối giải thích câu hỏi (chỉ render khi có dữ liệu)
-                            Input: ans.explanation (string hoặc null)
-                            Output: block có đường viền accent-1 hiển thị lời giải thích
-                          */}
+                          {/* Explanation line */}
                           {ans.explanation && (
                             <div style={{ background: 'rgba(255,255,255,0.04)', padding: '1rem', borderRadius: '8px', borderLeft: '4px solid var(--accent-1)' }}>
                               <p style={{ margin: 0, fontSize: '0.9rem', lineHeight: '1.6' }}>
@@ -541,9 +463,7 @@ export default function History() {
         })()
       )}
 
-      {/* description: Modal hiển thị thao tác Restore / Delete cho quiz đã bị xóa */}
-      {/* input: selectedDeleted object chứa thông tin quiz */}
-      {/* output: gọi hàm handleRestore, handlePermanentDelete, xóa trạng thái modal */}
+      {/* Modal display  Restore / Delete function for deleted quiz */}
       {selectedDeleted && (
         <div className="modal-overlay" style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }} onClick={() => setSelectedDeleted(null)}>
           <div

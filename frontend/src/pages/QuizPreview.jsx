@@ -20,16 +20,10 @@ export default function QuizPreview() {
   const navigate = useNavigate();
   const { user } = useUser();
 
-  // description: Thử lấy quiz data từ location.state trước (truyền từ History)
-  // input: location.state.quiz (nếu có), fallback fetch từ API nếu không có
-  // output: quiz object đầy đủ để render giao diện preview
   const [quiz, setQuiz] = useState(location.state?.quiz ?? null);
   const [loading, setLoading] = useState(!location.state?.quiz);
   const userId = location.state?.userId ?? user?.id ?? 'anonymous';
 
-  // description: Nếu không có data từ state (user truy cập URL trực tiếp), fetch từ API
-  // input: quizId từ URL params
-  // output: cập nhật state quiz
   useEffect(() => {
     if (quiz) return; // đã có data, bỏ qua
     (async () => {
@@ -75,11 +69,6 @@ export default function QuizPreview() {
   const tfs = quiz.questions.filter(q => q.type === 'tf').length;
 
   return (
-    /*
-      Description: Trang QuizPreview độc lập — hiển thị thông tin quiz và nút "Start Quiz"
-      Input: quiz object (từ location.state hoặc fetch API), userId
-      Output: giao diện preview đầy đủ với sidebar và main content
-    */
     <div className="db-root">
       {/* Sidebar */}
       <aside className="db-sidebar">
@@ -98,11 +87,6 @@ export default function QuizPreview() {
       <main className="db-main db-view">
         <header className="db-view-header">
           <div>
-            {/*
-              Description: Nút back điều hướng trở về trang trước (History hoặc Dashboard)
-              Input: browser history stack
-              Output: navigate(-1)
-            */}
             <button className="db-back-btn" onClick={() => navigate(-1)}>
               <ArrowLeft size={14} /> Back
             </button>
@@ -110,11 +94,6 @@ export default function QuizPreview() {
             <p className="db-view-sub">{quiz.description}</p>
           </div>
 
-          {/*
-            Description: Nút Start Quiz — navigate tới /quiz/:id với đầy đủ dữ liệu
-            Input: quiz object, userId
-            Output: navigate('/quiz/:id', { state: { quiz, userId } })
-          */}
           <div className="res-actions" style={{ flexDirection: 'row', justifyContent: 'flex-start', gap: '0.75rem', marginTop: '0.5rem' }}>
             <button
               className="btn btn-primary"
@@ -135,11 +114,6 @@ export default function QuizPreview() {
           </div>
         </header>
 
-        {/*
-          Description: Meta thông tin quiz (số MCQ, T/F, ngày tạo, tags)
-          Input: quiz.questions, quiz.tags, quiz.createdAt
-          Output: các chip thông tin hiển thị bên dưới header
-        */}
         <div className="db-detail-meta">
           <span className="db-meta-chip db-meta-mcq"><CheckSquare size={12} /> {mcqs} MCQ</span>
           <span className="db-meta-chip db-meta-tf"><ToggleLeft size={12} /> {tfs} T/F</span>
@@ -147,11 +121,6 @@ export default function QuizPreview() {
           {(quiz.tags ?? []).map(t => <span key={t} className="db-tag">{t}</span>)}
         </div>
 
-        {/*
-          Description: Danh sách tất cả câu hỏi trong quiz — có thể mở rộng từng câu
-          Input: quiz.questions
-          Output: render QuestionCard cho từng câu hỏi
-        */}
         <div className="db-questions-list">
           {quiz.questions.map((q, idx) => (
             <QuestionCard key={q.id ?? idx} question={q} index={idx} />
@@ -163,11 +132,7 @@ export default function QuizPreview() {
 }
 
 // ── QuestionCard ─────────────────────────────────────────────────────────────
-/*
-  Description: Card hiển thị từng câu hỏi, có thể mở rộng để xem đáp án
-  Input: question object (text, type, options/correct), index
-  Output: render câu hỏi với nút toggle mở rộng xem options/đáp án đúng
-*/
+
 function QuestionCard({ question, index }) {
   const [expanded, setExpanded] = useState(false);
 

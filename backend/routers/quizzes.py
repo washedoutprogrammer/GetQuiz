@@ -54,9 +54,6 @@ async def list_quizzes(
     is_deleted: bool = False,
     session: Session = Depends(get_session),
 ):
-    # description: Lấy danh sách quiz theo trạng thái xóa mềm
-    # input: user_id, is_deleted (mặc định False)
-    # output: Danh sách dict chứa thông tin quizzes
     quizzes = db_service.list_user_quizzes(session, user_id, is_deleted)
     stats_map = db_service.get_attempt_stats(session, user_id)
     return [_quiz_to_response(q, include_questions=True, stats=stats_map.get(str(q.id))) for q in quizzes]
@@ -186,9 +183,6 @@ async def restore_quiz(
     user_id: Optional[str] = "anonymous",
     session: Session = Depends(get_session),
 ):
-    # description: Khôi phục một quiz đã bị xóa mềm
-    # input: quiz_id, user_id
-    # output: Trạng thái restored và id của quiz
     restored = db_service.restore_quiz(session, quiz_id, user_id)
     if not restored:
         raise HTTPException(status_code=404, detail="Quiz not found or access denied")

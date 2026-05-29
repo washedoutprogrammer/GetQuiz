@@ -36,7 +36,6 @@ function readUsage(userId) {
     const raw = localStorage.getItem(`gq_quota_${userId}`);
     if (!raw) return { date: today(), used: 0 };
     const parsed = JSON.parse(raw);
-    // Reset on new day
     if (parsed.date !== today()) return { date: today(), used: 0 };
     return parsed;
   } catch {

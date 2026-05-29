@@ -2,7 +2,6 @@ import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva } from "class-variance-authority";
 
-// Minimal cn helper – no tailwind-merge needed since we use inline styles
 function cn(...classes) {
   return classes.filter(Boolean).join(" ");
 }

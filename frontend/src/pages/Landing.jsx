@@ -9,7 +9,6 @@ import Pricing from '../components/Pricing';
 import BottomCta from '../components/BottomCta';
 import Footer from '../components/Footer';
 
-// Lazy reveal: fade-up sections as they enter viewport
 function useSectionReveal() {
   useEffect(() => {
     const observer = new IntersectionObserver(

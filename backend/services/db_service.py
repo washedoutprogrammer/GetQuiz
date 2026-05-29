@@ -97,9 +97,7 @@ def save_manual_quiz(session: Session, user_id: str, quiz_data: dict) -> Quizzes
 # ── Quiz queries ──────────────────────────────────────────────────────────────
 
 def list_user_quizzes(session: Session, user_id: str, is_deleted: bool = False) -> List[Quizzes]:
-    # description: Lấy danh sách quiz của người dùng theo trạng thái xóa mềm
-    # input: session CSDL, user_id, cờ is_deleted
-    # output: danh sách đối tượng Quizzes
+    # Get list of quiz in solf-deleted state
     stmt = (
         select(Quizzes)
         .where(Quizzes.user_id == user_id, Quizzes.is_deleted == is_deleted)
@@ -119,9 +117,7 @@ def get_quiz_by_id(session: Session, quiz_id: uuid.UUID) -> Optional[Quizzes]:
 
 
 def delete_quiz(session: Session, quiz_id: uuid.UUID, user_id: str) -> bool:
-    # description: Xóa mềm Quiz bằng cách bật cờ is_deleted
-    # input: session, quiz_id, user_id
-    # output: boolean xác nhận thành công
+    # Soft-delete quiz by flagging is_deleted
     quiz = session.get(Quizzes, quiz_id)
     if not quiz or quiz.user_id != user_id:
         return False
@@ -136,9 +132,7 @@ def delete_quiz(session: Session, quiz_id: uuid.UUID, user_id: str) -> bool:
     return True
 
 def restore_quiz(session: Session, quiz_id: uuid.UUID, user_id: str) -> bool:
-    # description: Khôi phục Quiz bằng cách tắt cờ is_deleted
-    # input: session, quiz_id, user_id
-    # output: boolean xác nhận thành công
+    # Restore quiz by remove flag is_deleted
     quiz = session.get(Quizzes, quiz_id)
     if not quiz or quiz.user_id != user_id:
         return False
@@ -149,32 +143,26 @@ def restore_quiz(session: Session, quiz_id: uuid.UUID, user_id: str) -> bool:
     return True
 
 def permanent_delete_quiz(session: Session, quiz_id: uuid.UUID, user_id: str) -> bool:
-    # description: Xóa vĩnh viễn Quiz và dữ liệu liên quan khỏi Database bằng Bulk Delete để tối ưu tốc độ
-    # input: session, quiz_id, user_id
-    # output: boolean xác nhận thành công
+    # Pernanment delete quiz and related data away from Database by Bulk Delete to optimize speed
     quiz = session.get(Quizzes, quiz_id)
     if not quiz or quiz.user_id != user_id:
         return False
     
-    # + description: Lấy danh sách attempts, thực hiện Bulk Delete để tránh N+1 Query làm chậm hệ thống
-    # + input: quiz_id, danh sách các attempt_ids liên quan
-    # + output: Xóa toàn bộ UserAnswersHistory và Attempt trong vỏn vẹn 2 lệnh query tới database
+    # Get list of attempts, activate Bulk Delete to avoid N+1 Query which lower operation speed
     attempts = session.exec(select(Attempt).where(Attempt.quiz_id == quiz_id)).all()
     if attempts:
         attempt_ids = [a.id for a in attempts]
         session.exec(delete(UserAnswersHistory).where(UserAnswersHistory.attempt_id.in_(attempt_ids)))
         session.exec(delete(Attempt).where(Attempt.quiz_id == quiz_id))
         
-    # + description: Lấy danh sách questions, thực hiện Bulk Delete để tránh ORM Cascade ngầm tải hàng loạt options
-    # + input: quiz_id, danh sách question_ids
-    # + output: Xóa toàn bộ Options và Questions
+    # Get list of questions, activate Bulk Delete to avoid ORM Cascade download massive amount of options in background
     questions = session.exec(select(Questions).where(Questions.quiz_id == quiz_id)).all()
     if questions:
         question_ids = [q.id for q in questions]
         session.exec(delete(Options).where(Options.question_id.in_(question_ids)))
         session.exec(delete(Questions).where(Questions.quiz_id == quiz_id))
         
-    # + description: Bulk Delete Quiz để tránh ORM session tracking
+    # + Bulk Delete Quiz to avoid ORM session tracking
     session.exec(delete(Quizzes).where(Quizzes.id == quiz_id))
     session.commit()
     return True
@@ -255,9 +243,7 @@ def complete_attempt(
 
 
 def get_user_attempts_detailed(session: Session, user_id: str) -> List[dict]:
-    # description: Lấy lịch sử làm bài chi tiết bao gồm giải thích (explanation)
-    # input: session, user_id
-    # output: list các attempt đã format dạng dict
+    # Get attempts hítory in details (include explanation)
     stmt = (
         select(Attempt)
         .where(Attempt.user_id == user_id, Attempt.status == "completed")
@@ -279,9 +265,7 @@ def get_user_attempts_detailed(session: Session, user_id: str) -> List[dict]:
             chosen_opt = history.option
             correct_opt = next((o for o in q.options if o.is_correct), None)
             
-            # description: Lấy và format dữ liệu chi tiết cho từng câu hỏi trong lần thi
-            # input: question (q), lựa chọn của user (chosen_opt), lựa chọn đúng (correct_opt)
-            # output: object chứa nội dung câu hỏi, giải thích, các options và đáp án của user/đáp án đúng
+            # Get and format detailed data for each question in session
             answer_details.append({
                 "question_id": q.id,
                 "question_text": q.content,

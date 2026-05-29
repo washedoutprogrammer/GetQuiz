@@ -115,7 +115,6 @@ export default function Results() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // State passed from QuizSession
   const { quiz, answers } = location.state ?? {};
 
   if (!quiz) {

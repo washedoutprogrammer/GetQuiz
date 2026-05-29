@@ -24,9 +24,9 @@ export default function QuizSession() {
   const [quiz, setQuiz] = useState(null);
   const [sessionId, setSessionId] = useState(null);
   const [current, setCurrent] = useState(0);
-  const [selected, setSelected] = useState(null);   // user's pick
+  const [selected, setSelected] = useState(null);
   const [revealed, setRevealed] = useState(false);
-  const [answers, setAnswers] = useState([]);        // {questionId, answer, correct}
+  const [answers, setAnswers] = useState([]);
   const [timeLeft, setTimeLeft] = useState(TIME_PER_Q);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -38,10 +38,8 @@ export default function QuizSession() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // Use router state if passed directly from Dashboard
       if (stateQuiz) {
         setQuiz(stateQuiz);
-        // Still try to start a real session
         const { ok: sOk, data: sData } = await startSession(quizId, userId);
         setSessionId(sOk && sData?.id ? sData.id : buildMockSession(quizId).id);
         setLoading(false);
@@ -132,7 +130,6 @@ export default function QuizSession() {
     clearInterval(timerRef.current);
     const answer = val ?? selected;
 
-    // Determine correctness and optionId
     let correct = false;
     let optionId = null;
 
