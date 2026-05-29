@@ -1,25 +1,25 @@
-import { Type, Brain, Send } from 'lucide-react';
+import { FileText, Bot, Trophy } from 'lucide-react';
 
 const STEPS = [
   {
     num: '01',
-    icon: Type,
+    icon: FileText,
     title: 'Give a topic or upload content',
-    desc: 'Type a prompt, paste text, drop a document (PDF/DOCX), or share a URL. GetQuiz understands it all.',
+    desc: 'Simply type a topic you want to learn about, or upload your study documents (PDF, DOCX, TXT) up to 15,000 characters.',
     color: 'var(--accent-2)',
   },
   {
     num: '02',
-    icon: Brain,
+    icon: Bot,
     title: 'Watch AI build the quiz',
-    desc: 'Our large language model identifies key concepts, generates distractors, and assembles a balanced, pedagogically sound assessment.',
+    desc: 'Our system connects to OpenRouter AI to analyze your document\'s context and generate multiple-choice and true/false questions.',
     color: 'var(--cold)',
   },
   {
     num: '03',
-    icon: Send,
-    title: 'Publish & share instantly',
-    desc: 'Review, tweak if needed, then publish with one click. Share via link, embed on your site, or push directly to your LMS.',
+    icon: Trophy,
+    title: 'Test yourself & get graded',
+    desc: 'Start the timer, complete the quiz, and get instantly graded with a visual score breakdown and detailed explanations.',
     color: '#3dffa0',
   },
 ];
@@ -41,25 +41,27 @@ export default function HowItWorks() {
           <span className="gradient-text">three steps</span>
         </h2>
         <p className="section-sub">
-          No learning curve. No templates. Just describe what you need and GetQuiz handles the rest.
+          Stop wasting hours writing questions manually. Let the AI do the heavy lifting for you.
         </p>
 
-        <div className="how-steps" role="list">
-          {STEPS.map(({ num, icon: Icon, title, desc, color }, i) => (
-            <div
-              key={num}
-              className="how-step"
-              role="listitem"
-              aria-label={`Step ${num}: ${title}`}
-            >
-              <div className="how-step-num" style={{ color }}>
-                {num}
+        <div className="how-steps">
+          {STEPS.map(({ num, icon: Icon, title, desc, color }) => (
+            <div key={num} className="how-step">
+              <div className="how-step-icon-wrap" aria-hidden="true">
                 <div
-                  className="how-step-icon"
-                  style={{ background: color }}
-                  aria-hidden="true"
+                  style={{
+                    width: 48,
+                    height: 48,
+                    borderRadius: '14px',
+                    background: color,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    boxShadow: `0 8px 24px ${color}40`,
+                    marginBottom: '1rem',
+                  }}
                 >
-                  <Icon size={13} color="var(--ink)" strokeWidth={2.5} />
+                  <Icon size={24} color="var(--ink)" strokeWidth={2} />
                 </div>
               </div>
               <h3 className="how-step-title">{title}</h3>
@@ -84,9 +86,9 @@ export default function HowItWorks() {
           }}
         >
           {[
-            { emoji: '⚡', text: 'Average quiz created in 3.2 seconds' },
-            { emoji: '🎯', text: '98.4% question accuracy rate' },
-            { emoji: '🔁', text: 'Unlimited regeneration per prompt' },
+            { emoji: '⚡', text: 'Auto-fallback to Mock Mode on errors' },
+            { emoji: '🎯', text: 'Supports True/False and MCQ formats' },
+            { emoji: '🔁', text: 'Quota limits to prevent API abuse' },
           ].map(({ emoji, text }) => (
             <div
               key={text}
