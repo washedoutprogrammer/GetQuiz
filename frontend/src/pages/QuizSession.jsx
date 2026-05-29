@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useLocation } from 'react-router-dom';
 import { ArrowRight, CheckCircle, X, Zap, Clock } from 'lucide-react';
 import { getQuiz } from '../api/quizzes';
-import { startSession, submitAnswer, finishSession } from '../api/sessions';
+import { startSession, finishSession } from '../api/sessions';
 import { getMockQuiz } from '../data/mockQuizzes';
 import '../styles/quiz.css';
 
@@ -19,6 +19,7 @@ export default function QuizSession() {
   const navigate = useNavigate();
   const location = useLocation();
   const stateQuiz = location.state?.quiz;
+  const userId = location.state?.userId ?? 'anonymous';
 
   const [quiz, setQuiz] = useState(null);
   const [sessionId, setSessionId] = useState(null);
@@ -37,10 +38,12 @@ export default function QuizSession() {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // Use router state if passed directly from Dashboard, skipping memory database backend necessity
+      // Use router state if passed directly from Dashboard
       if (stateQuiz) {
         setQuiz(stateQuiz);
-        setSessionId(buildMockSession(quizId).id);
+        // Still try to start a real session
+        const { ok: sOk, data: sData } = await startSession(quizId, userId);
+        setSessionId(sOk && sData?.id ? sData.id : buildMockSession(quizId).id);
         setLoading(false);
         return;
       }
@@ -49,7 +52,6 @@ export default function QuizSession() {
       if (cancelled) return;
 
       if (!ok || !data) {
-        // Backend offline — look up the quiz from shared mock data by id
         const mockQuiz = getMockQuiz(quizId) ?? {
           id: quizId,
           title: 'Quiz',
@@ -61,8 +63,7 @@ export default function QuizSession() {
         return;
       }
 
-      // Try to start session
-      const { ok: sOk, data: sData } = await startSession(quizId);
+      const { ok: sOk, data: sData } = await startSession(quizId, userId);
       if (!cancelled) {
         setQuiz(data);
         setSessionId(sOk && sData?.id ? sData.id : buildMockSession(quizId).id);
@@ -131,41 +132,40 @@ export default function QuizSession() {
     clearInterval(timerRef.current);
     const answer = val ?? selected;
 
-    // Determine correctness
+    // Determine correctness and optionId
     let correct = false;
+    let optionId = null;
+
     if (q.type === 'mcq') {
       correct = answer === q.correctIndex;
+      if (answer !== null && q.optionIds) optionId = q.optionIds[answer];
     } else {
       correct = answer === q.correct;
+      if (answer !== null && q.optionIds) optionId = q.optionIds[answer === true ? 0 : 1];
     }
 
-    setAnswers(prev => [...prev, { questionId: q.id, answer, correct }]);
+    setAnswers(prev => [...prev, { questionId: q.id, optionId, answer, correct }]);
     setRevealed(true);
-
-    // Fire-and-forget API call (works even if mock session)
-    if (!sessionId?.startsWith('mock')) {
-      submitAnswer(sessionId, q.id, String(answer)).catch(() => {});
-    }
   }
 
   /* ── Next question or finish ── */
   async function handleNext() {
     if (current + 1 >= questions.length) {
-      // Finish session
       setSubmitting(true);
-      const allAnswers = answers; // already includes current
+      const allAnswers = answers;
+      const correct = allAnswers.filter(a => a.correct).length;
+      const score = questions.length > 0 ? Math.round((correct / questions.length) * 100) : 0;
 
       if (!sessionId?.startsWith('mock')) {
-        await finishSession(sessionId);
+        const payloadAnswers = allAnswers.map(a => ({
+          question_id: a.questionId,
+          option_id: a.optionId
+        }));
+        await finishSession(sessionId, score, payloadAnswers);
       }
 
-      // Navigate to results with state
       navigate(`/results/${sessionId}`, {
-        state: {
-          quiz,
-          answers: allAnswers,
-          sessionId,
-        },
+        state: { quiz, answers: allAnswers, sessionId },
       });
     } else {
       setCurrent(c => c + 1);
@@ -281,6 +281,21 @@ export default function QuizSession() {
                 </button>
               );
             })}
+          </div>
+        )}
+
+        {/* Explanation (if available and revealed) */}
+        {revealed && q.explanation && (
+          <div style={{
+            marginTop: '1.25rem',
+            padding: '0.875rem 1rem',
+            backgroundColor: 'var(--surface-2)',
+            borderRadius: '0.5rem',
+            fontSize: '0.9rem',
+            color: 'var(--text-1)',
+            borderLeft: '4px solid #9d7fff'
+          }}>
+            <strong>Explanation:</strong> {q.explanation}
           </div>
         )}
 

@@ -2,8 +2,25 @@
 
 const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 
-function getToken() {
-  return localStorage.getItem('gq-token') ?? null;
+/**
+ * Injected by Dashboard (and any other component that has access to Clerk's
+ * getToken). Call setTokenGetter(getToken) once on mount.
+ */
+let _getToken = null;
+export function setTokenGetter(fn) { _getToken = fn; }
+
+async function getAuthHeaders(isFormData = false) {
+  const headers = {};
+  if (!isFormData) {
+    headers['Content-Type'] = 'application/json';
+  }
+  if (_getToken) {
+    try {
+      const token = await _getToken();
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+    } catch { /* silent — backend degrades gracefully */ }
+  }
+  return headers;
 }
 
 /**
@@ -11,18 +28,14 @@ function getToken() {
  * Returns { ok: boolean, data: any, error: string|null }
  */
 export async function apiFetch(path, options = {}) {
-  const token = getToken();
+  const isFormData = options.body instanceof FormData;
   const headers = {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...(await getAuthHeaders(isFormData)),
     ...(options.headers ?? {}),
   };
 
   try {
-    const res = await fetch(`${BASE}${path}`, {
-      ...options,
-      headers,
-    });
+    const res = await fetch(`${BASE}${path}`, { ...options, headers });
 
     let data = null;
     const text = await res.text();
@@ -37,6 +50,9 @@ export async function apiFetch(path, options = {}) {
 
     return { ok: true, data, error: null };
   } catch (err) {
+    if (err.name === 'AbortError') {
+      return { ok: false, data: null, error: 'AbortError', isAborted: true };
+    }
     return { ok: false, data: null, error: err.message ?? 'Network error' };
   }
 }

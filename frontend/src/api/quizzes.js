@@ -1,27 +1,101 @@
 import { apiFetch } from './client';
 
-export async function getQuizzes() {
-  return apiFetch('/quizzes');
+/** Fetch all quizzes for the current user. */
+export async function getQuizzes(userId = 'anonymous') {
+  return apiFetch(`/quizzes/?user_id=${encodeURIComponent(userId)}`);
 }
 
+/** Fetch a single quiz with full questions. */
 export async function getQuiz(id) {
   return apiFetch(`/quizzes/${id}`);
 }
 
-export async function createQuiz(payload) {
-  return apiFetch('/quizzes', {
+/**
+ * Save a manually-created quiz.
+ * payload: { title, description, tags, difficulty, questions }
+ */
+export async function createQuiz(userId = 'anonymous', payload) {
+  return apiFetch('/quizzes/', {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ user_id: userId, ...payload }),
   });
 }
 
-export async function deleteQuiz(id) {
-  return apiFetch(`/quizzes/${id}`, { method: 'DELETE' });
+/** Delete a quiz by ID. */
+export async function deleteQuiz(id, userId = 'anonymous') {
+  return apiFetch(`/quizzes/${id}?user_id=${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+  });
 }
 
-export async function generateQuiz(topic, count = 5) {
+export async function generateQuiz(userId = 'anonymous', topic, count = 5, signal = null, file = null, mix = 'mixed') {
+  // Input: userId (string), topic (string), count (number), signal (AbortSignal), file (File|null), mix (string)
+  // Output: Promise resolving to the API response ({ ok, data, error, isAborted }), sent back to Dashboard
+  const formData = new FormData();
+  formData.append('user_id', userId);
+  formData.append('topic', topic);
+  formData.append('count', String(count));
+  if (mix) {
+    formData.append('mix', mix);
+  }
+  if (file) {
+    formData.append('file', file);
+  }
   return apiFetch('/quizzes/generate', {
     method: 'POST',
-    body: JSON.stringify({ topic, count }),
+    body: formData,
+    signal,
   });
+}
+
+/**
+ * Ask the AI to suggest 3–5 quiz topics from an uploaded document.
+ * Input:  file (File object)
+ * Output: Promise → { ok, data: { topics: [{title, description}] }, error }
+ */
+export async function suggestTopics(file) {
+  const formData = new FormData();
+  formData.append('file', file);
+  return apiFetch('/quizzes/suggest-topics', { method: 'POST', body: formData });
+}
+
+/** Get the unified activity log (created / attempted / deleted) for a user. */
+export async function getHistory(userId = 'anonymous') {
+  return apiFetch(`/history/?user_id=${encodeURIComponent(userId)}`);
+}
+
+/** Get deleted quizzes for a user */
+export async function getDeletedQuizzes(userId = 'anonymous') {
+  // description: Fetch danh sách quiz đã xóa mềm
+  // input: userId
+  // output: danh sách quizzes (is_deleted=True)
+  return apiFetch(`/quizzes/?user_id=${encodeURIComponent(userId)}&is_deleted=true`);
+}
+
+/** Restore a soft-deleted quiz */
+export async function restoreQuiz(id, userId = 'anonymous') {
+  // description: Khôi phục quiz đã bị xóa mềm
+  // input: quiz id, userId
+  // output: trạng thái restore
+  return apiFetch(`/quizzes/${id}/restore?user_id=${encodeURIComponent(userId)}`, {
+    method: 'PATCH',
+  });
+}
+
+/** Permanently delete a quiz */
+export async function permanentDeleteQuiz(id, userId = 'anonymous') {
+  // description: Xóa vĩnh viễn quiz
+  // input: quiz id, userId
+  // output: trạng thái xóa vĩnh viễn
+  return apiFetch(`/quizzes/${id}/permanent?user_id=${encodeURIComponent(userId)}`, {
+    method: 'DELETE',
+  });
+}
+
+/** Get detailed attempt history for a user */
+export async function getDetailedAttempts(userId = 'anonymous') {
+  // description: Lấy lịch sử làm bài chi tiết kèm lời giải thích
+  // input: userId
+  // output: danh sách attempt chi tiết
+  return apiFetch(`/history/attempts?user_id=${encodeURIComponent(userId)}`);
 }

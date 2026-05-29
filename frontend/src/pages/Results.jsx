@@ -59,10 +59,11 @@ function BreakdownItem({ q, ans, idx }) {
 
   function getCorrectLabel(q) {
     if (q.type === 'mcq') {
-      const i = q.correct_index;
+      const i = q.correct_index !== undefined ? q.correct_index : q.correctIndex;
       return `${LETTERS[i]}. ${q.options?.[i] ?? i}`;
     }
-    return q.correct_answer === true ? 'True' : 'False';
+    const ans = q.correct_answer !== undefined ? q.correct_answer : q.correct;
+    return ans === true ? 'True' : 'False';
   }
 
   return (
@@ -98,6 +99,11 @@ function BreakdownItem({ q, ans, idx }) {
               </div>
             )}
           </div>
+          {q.explanation && (
+            <div style={{ marginTop: '0.75rem', padding: '0.625rem', backgroundColor: 'var(--surface-2)', borderRadius: '0.5rem', fontSize: '0.85rem', color: 'var(--text-1)' }}>
+              <strong>Explanation:</strong> {q.explanation}
+            </div>
+          )}
         </div>
       )}
     </div>

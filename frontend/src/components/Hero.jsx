@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sparkles, ArrowRight, ChevronRight } from 'lucide-react';
+import { Sparkles, ChevronRight, PlusCircle } from 'lucide-react';
 import { generateQuiz } from '../api/quizzes';
-import LoadingOverlay from './LoadingOverlay';
+import { FallingPattern } from './ui/falling-pattern';
 
 // Lightweight star field using pure CSS/JS — no library needed
 function StarField({ count = 80 }) {
@@ -165,7 +165,6 @@ export default function Hero() {
 
   //Add 3 loading state
   const navigate = useNavigate();
-  const [loadingState, setLoadingState] = useState('idle'); // 'idle' | 'checking' | 'generating'
 
   const EXAMPLE_PROMPTS = [
     'Make a 10-question quiz about the Solar System',
@@ -222,12 +221,19 @@ export default function Hero() {
   return (
     // Loading style (blur screen + loading animation + loading text)
     <>
-      <LoadingOverlay loadingState={loadingState} />
 
       <section className="hero" id="hero" aria-labelledby="hero-heading">
-        {/* Ambient background */}
+        {/* Animated falling-pattern background */}
         <div className="hero-bg" aria-hidden="true">
-          <StarField count={100} />
+          <FallingPattern
+            color="rgba(124, 92, 252, 0.9)"
+            backgroundColor="var(--ink)"
+            duration={120}
+            blurIntensity="0.4em"
+            density={1}
+            className="falling-pattern-hero"
+          />
+          {/* Color blob overlays sit on top of the pattern */}
           <div className="hero-blob-1" />
           <div className="hero-blob-2" />
         </div>
@@ -261,36 +267,30 @@ export default function Hero() {
                 Then refine with our powerful editor — no setup, no friction.
               </p>
 
-              {/* CTA Input */}
+              {/* CTA Buttons */}
               <div className="anim-fade-up anim-delay-3">
-                <div
-                  className="hero-input-group"
-                  role="search"
-                  aria-label="Quiz generation prompt"
-                >
-                  <input
-                    ref={inputRef}
-                    id="hero-prompt-input"
-                    className="hero-input"
-                    type="text"
-                    value={prompt}
-                    onChange={e => setPrompt(e.target.value)}
-                    placeholder={EXAMPLE_PROMPTS[exampleIndex]}
-                    onKeyDown={e => e.key === 'Enter' && handleGenerate()}
-                    aria-label="Enter a quiz prompt"
-                  />
+                <div style={{ display: 'flex', gap: '0.875rem', flexWrap: 'wrap' }}>
                   <button
-                    id="hero-generate-btn"
+                    id="hero-new-quiz-btn"
                     className="btn btn-primary"
-                    onClick={handleGenerate}
-                    aria-label="Generate quiz"
+                    onClick={() => navigate('/dashboard', { state: { openView: 'create' } })}
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1.5rem', fontSize: '0.95rem' }}
                   >
-                    <Sparkles size={15} />
-                    Generate
+                    <PlusCircle size={16} />
+                    New Quiz
+                  </button>
+                  <button
+                    id="hero-ai-quiz-btn"
+                    className="btn"
+                    onClick={() => navigate('/dashboard', { state: { openView: 'generate' } })}
+                    style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1.5rem', fontSize: '0.95rem', background: 'var(--accent-soft)', color: 'var(--accent-2)', border: '1px solid var(--border-glow)' }}
+                  >
+                    <Sparkles size={16} />
+                    Quiz with AI
                   </button>
                 </div>
                 <p style={{
-                  marginTop: '0.625rem',
+                  marginTop: '0.75rem',
                   fontSize: '0.75rem',
                   color: 'var(--text-3)',
                   fontFamily: 'var(--font-mono)',

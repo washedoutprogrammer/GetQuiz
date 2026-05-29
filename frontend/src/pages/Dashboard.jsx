@@ -1,22 +1,29 @@
-import { useState, useReducer, useCallback, useMemo, useEffect } from 'react';
+import { useState, useReducer, useCallback, useMemo, useEffect, useRef, act } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import {
   Zap, Sun, Moon, LayoutDashboard, PlusCircle, ClipboardList,
   ChevronRight, Search, Trash2, Edit3, X, Plus, Check,
   ToggleLeft, CheckSquare, Clock, HelpCircle, ArrowLeft,
   AlertCircle, BookOpen, BarChart2, ChevronDown,
-  Sparkles, Loader2
+  Sparkles, Loader2, Trophy, RotateCcw, Flame, RefreshCw
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
-import { MOCK_QUIZZES } from '../data/mockQuizzes';
+import { useUser, useAuth } from '@clerk/clerk-react';
 import '../styles/dashboard.css';
-import { generateQuiz } from '../api/quizzes';
-import LoadingOverlay from '../components/LoadingOverlay';
+import { generateQuiz, getQuizzes, createQuiz, deleteQuiz, getHistory, suggestTopics } from '../api/quizzes';
+import Toast from '../components/Toast';
+import { useQuota, PLAN_LIMITS, PLAN_LABELS } from '../lib/useQuota';
+
+
+// ── Mock recent activity feed (replaced by live quiz state — see sidebar below)
+
 
 
 // ── Reducer for quiz state ─────────────────────────────────────
 function quizzesReducer(state, action) {
   switch (action.type) {
+    case 'SET_QUIZZES':
+      return action.quizzes;
     case 'ADD_QUIZ':
       if (state.some(q => q.id === action.quiz.id)) return state;
       return [action.quiz, ...state];
@@ -30,60 +37,278 @@ function quizzesReducer(state, action) {
 }
 
 // ── Views ──────────────────────────────────────────────────────
-const VIEWS = { HOME: 'home', CREATE: 'create', DETAIL: 'detail', AI_CREATE: 'ai_create' };
+const VIEWS = { HOME: 'home', CREATE: 'create', AI_CREATE: 'ai_create' };
 
 export default function Dashboard() {
   const { theme, toggle } = useTheme();
-  const [quizzes, dispatch] = useReducer(quizzesReducer, MOCK_QUIZZES);
-  const [view, setView] = useState(VIEWS.HOME);
-  const [selectedQuiz, setSelectedQuiz] = useState(null);
-  const [search, setSearch] = useState('');
+  const { user } = useUser();
+  const { getToken } = useAuth();
+  const userId = user?.id ?? 'anonymous';
 
-  // Loading state for generating process
+  // ── Quota / plan state ─────────────────────────────────────────
+  const quota = useQuota(userId);
+  const navigate = useNavigate();
+
+  const [quizzes, dispatch] = useReducer(quizzesReducer, []);
+  const [recentActivities, setRecentActivities] = useState([]);
+  const [view, setView] = useState(VIEWS.HOME);
+  const [search, setSearch] = useState('');
+  const [loadingQuizzes, setLoadingQuizzes] = useState(true);
+  const [toast, setToast] = useState(null); // { message, type, options }
+  // + description: Allow generic options mapping to Toast features like action buttons
+  // + input: message (str), type (str), options (object from caller)
+  // + output: setState containing toast configurations propagated to Toast element
+  const showToast = (message, type = 'warn', options = {}) => setToast({ message, type, options });
+
+  // (setTokenGetter is now initialized once in App.jsx)
+
+  // ── [Thêm useRef] Lưu lại các tiến trình có thể huỷ (AbortController)
+  // Description: Chứa dictionary key-value { [quizId]: controller } để abort request khi Cancel/Edit
+  // Input: không có. Output: Cung cấp dictionary quản lý abort controller theo id.
+  const abortControllers = useRef({});
+
+  const [initialAiConfig, setInitialAiConfig] = useState(null);
+
+  // ── [Cập nhật] Xử lý F5 và Offline: Đọc localStorage khi mount
+  // Description: Quét localStorage xem có task nào đang bị dở dang không, nếu có thì nạp lại vào state với trạng thái isFailed.
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem('getquiz_pending_tasks_v2');
+      if (stored) {
+        const pending = JSON.parse(stored);
+        pending.forEach(q => {
+          // Bất kì task nào lấy từ bộ nhớ tạm đều mặc định bị đứt kết nối (isFailed = true) do F5
+          dispatch({ type: 'ADD_QUIZ', quiz: { ...q, isFailed: true } });
+        });
+      }
+    } catch { /* parse error */ }
+  }, []);
+
+  // ── Load quizzes and history from backend on mount ───────────────────────
+  useEffect(() => {
+    if (!userId || userId === 'anonymous') return;
+    let cancelled = false;
+    async function loadData() {
+      const resQuizzes = await getQuizzes(userId);
+      if (!cancelled && resQuizzes.ok && Array.isArray(resQuizzes.data)) {
+        dispatch({ type: 'SET_QUIZZES', quizzes: resQuizzes.data });
+      }
+
+      const resHistory = await getHistory(userId);
+      if (!cancelled && resHistory.ok && Array.isArray(resHistory.data)) {
+        setRecentActivities(resHistory.data);
+      }
+
+      if (!cancelled) setLoadingQuizzes(false);
+    }
+    loadData();
+    return () => { cancelled = true; };
+  }, [userId]);
+
   const location = useLocation();
 
+  // + description: Điều hướng người dùng tới History.jsx và truyền data activity để mở đúng tab/modal
+  // + input: đối tượng activity lấy từ danh sách recentActivities
+  // + output: chuyển route sang /history kèm theo state targetActivity
+  const handleActivityClick = useCallback((activity) => {
+    navigate('/history', { state: { targetActivity: activity } });
+  }, [navigate]);
+
+  // ── Handle AI-generated quiz state passed via navigation ──────
   useEffect(() => {
     const aiQuiz = location.state?.generatedQuiz;
     if (aiQuiz) {
       dispatch({ type: 'ADD_QUIZ', quiz: aiQuiz });
-      setSelectedQuiz(aiQuiz);
-      setView(VIEWS.DETAIL);
-      // Clear state so that refresh doesn't duplicate the quiz
+      navigate(`/quiz-preview/${aiQuiz.id}`, { state: { quiz: aiQuiz, userId } });
       window.history.replaceState({}, document.title);
     }
-  }, [location.state?.generatedQuiz]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state?.generatedQuiz, userId]);
+
+  // ── [Mới] Handle openView state passed via navigation (from Hero) ──
+  // Description: Nếu được điều hướng kèm openView ('create' hoặc 'generate'), Dashboard sẽ tự động mở view tương ứng.
+  // Input: location.state.openView
+  // Output: setView(VIEWS.CREATE hoặc VIEWS.AI_CREATE)
+  useEffect(() => {
+    const ov = location.state?.openView;
+    if (ov === 'create') {
+      setView(VIEWS.CREATE);
+    } else if (ov === 'generate') {
+      setView(VIEWS.AI_CREATE);
+    }
+    if (ov) window.history.replaceState({}, document.title);
+  }, [location.state?.openView]);
+
+  // ── Handle navigation from History page: open a specific quiz ──
+
+  useEffect(() => {
+    const openId = location.state?.openQuizId;
+    if (!openId || quizzes.length === 0) return;
+    const quiz = quizzes.find(q => q.id === openId);
+    if (quiz) {
+      openDetail(quiz);
+    } else {
+      showToast('This quiz has been deleted and no longer exists.', 'warn');
+    }
+    window.history.replaceState({}, document.title);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state?.openQuizId, quizzes]);
+
 
   const openDetail = useCallback((quiz) => {
-    setSelectedQuiz(quiz);
-    setView(VIEWS.DETAIL);
-  }, []);
+    navigate(`/quiz-preview/${quiz.id}`, { state: {quiz, userId }});
+  }, [navigate, userId]);
 
-  const handleDelete = useCallback((id) => {
+  const handleDelete = useCallback(async (id) => {
+    const quizToRestore = quizzes.find(q => q.id === id);
     dispatch({ type: 'DELETE_QUIZ', id });
-    if (selectedQuiz?.id === id) setView(VIEWS.HOME);
-  }, [selectedQuiz]);
+    try {
+      await deleteQuiz(id, userId);
+    } catch (error) {
+      showToast('Failed to delete quiz. Please try again.', 'error');
+      if (quizToRestore) {
+        dispatch({ type: 'ADD_QUIZ', quiz: quizToRestore });
+      }
+    }
+  }, [userId, quizzes]);
 
-  const handleCreate = useCallback((quiz) => {
-    dispatch({ type: 'ADD_QUIZ', quiz });
+  const handleCreate = useCallback(async (quiz) => {
+    const res = await createQuiz(userId, {
+      title: quiz.title,
+      description: quiz.description,
+      tags: quiz.tags,
+      difficulty: quiz.difficulty || 'easy',
+      questions: quiz.questions,
+    });
+    const savedQuiz = res.ok ? res.data : quiz;
+    dispatch({ type: 'ADD_QUIZ', quiz: savedQuiz });
     setView(VIEWS.HOME);
+  }, [userId]);
+
+  // ── [Mới] Khởi chạy tiến trình tạo AI ngầm (Background Task)
+  // Description: Thiết lập Skeleton card, ghi vào localStorage, thiết lập AbortController rồi call API fetch.
+  // Input: prompt (string), numQ (string/number), mix (string), customId (optional string phục vụ retry)
+  // Output: Update state quizzes, gửi request về backend, gọi dispatch / showToast phụ thuộc payload api trả về.
+  const handleStartAiTask = useCallback(async (prompt, numQ, mix, customId = null, file = null) => {
+    const tempId = customId || `loading_${Date.now()}`;
+    const skeletonQuiz = {
+      id: tempId,
+      title: "Generating AI Quiz...",
+      description: prompt,
+      tags: ['AI', 'Generating'],
+      questions: [],
+      createdAt: new Date().toISOString().slice(0, 10),
+      isLoading: true,
+      isFailed: false,
+      aiTaskParams: { prompt, numQ, mix } // File is intentionally excluded — cannot store File in localStorage
+    };
+
+    // Ghi vào state, dùng UPDATE_QUIZ để override card nếu đang là retry (tức isFailed = true trước đó)
+    // Nếu chưa từng có trong state, UPDATE_QUIZ trong reducer cũ không thêm mới, nên gọi cả ADD_QUIZ nếu không có customId
+    if (customId) {
+      dispatch({ type: 'UPDATE_QUIZ', quiz: skeletonQuiz });
+    } else {
+      dispatch({ type: 'ADD_QUIZ', quiz: skeletonQuiz });
+    }
+
+    // Chuyển view về Home
+    setView(VIEWS.HOME);
+    showToast("We will announce when the task completed. Feel free to enjoy other tasks!", "success");
+
+    // Ghi vào localStorage để chống F5
+    const stored = JSON.parse(localStorage.getItem('getquiz_pending_tasks_v2') || '[]');
+    const newStored = stored.filter(q => q.id !== tempId);
+    newStored.push(skeletonQuiz);
+    localStorage.setItem('getquiz_pending_tasks_v2', JSON.stringify(newStored));
+
+    // Khởi tạo AbortController gắn vào danh sách
+    const controller = new AbortController();
+    abortControllers.current[tempId] = controller;
+
+    try {
+      // Cập nhật: Gửi kèm file và mix
+      const res = await generateQuiz(userId, prompt, parseInt(numQ, 10), controller.signal, file, mix);
+
+      // Request thành công hoặc kết thúc, phải dọn dẹp controller và xoá task khỏi storage
+      const currentStored = JSON.parse(localStorage.getItem('getquiz_pending_tasks_v2') || '[]');
+      localStorage.setItem('getquiz_pending_tasks_v2', JSON.stringify(currentStored.filter(q => q.id !== tempId)));
+      delete abortControllers.current[tempId];
+
+      if (res.isAborted) return; // Nếu bị abort chủ động (Cancel/Edit) thì code cancel bên dưới đã dọn UI, không cần xử lý nữa.
+
+      if (res.ok) {
+        // Cập nhật giao diện: thế chỗ dummy quiz bằng quiz mới
+        dispatch({ type: 'DELETE_QUIZ', id: tempId });
+        dispatch({ type: 'ADD_QUIZ', quiz: res.data.data });
+        quota.consume();
+        showToast("AI Quiz generated successfully!", "success", { actionText: "See now" , onAction: () => openDetail(res.data.data) });
+      } else {
+        // Lỗi từ backend (hoặc parse failed)
+        dispatch({ type: 'UPDATE_QUIZ', quiz: { ...skeletonQuiz, isLoading: false, isFailed: true } });
+        showToast(`Failed: ${res.error}`, "error");
+      }
+
+    } catch (err) {
+      if (err.name === 'AbortError') return; // React fetch abort chủ động
+      // Mất mạng
+      dispatch({ type: 'UPDATE_QUIZ', quiz: { ...skeletonQuiz, isLoading: false, isFailed: true } });
+      showToast("Network error generating AI Quiz", "error");
+    }
+  }, [userId, dispatch, quota]);
+
+  // ── [Mới] Huỷ tiến trình tạo AI
+  // Description: Gọi controller.abort() huỷ request và dẹp tan state skeleton.
+  // Input: id (string) của thẻ quiz
+  const handleCancelAiTask = useCallback((id) => {
+    if (abortControllers.current[id]) {
+      abortControllers.current[id].abort();
+      delete abortControllers.current[id];
+    }
+    dispatch({ type: 'DELETE_QUIZ', id });
+    const currentStored = JSON.parse(localStorage.getItem('getquiz_pending_tasks_v2') || '[]');
+    localStorage.setItem('getquiz_pending_tasks_v2', JSON.stringify(currentStored.filter(q => q.id !== id)));
+    showToast("Process Cancelled", "warn");
   }, []);
 
-  const handleAiCreate = useCallback((quiz) => {
-    dispatch({ type: 'ADD_QUIZ', quiz });
-    setSelectedQuiz(quiz);
-    setView(VIEWS.DETAIL);
+  // ── [Mới] Chỉnh sửa tiến trình AI đang tạo
+  // Description: Tương tự Cancel nhưng bảo lưu input values vào màn hình Edit
+  // Input: quiz thẻ (object) chứa thông tin aiTaskParams
+  const handleEditAiTask = useCallback((quiz) => {
+    if (abortControllers.current[quiz.id]) {
+      abortControllers.current[quiz.id].abort();
+      delete abortControllers.current[quiz.id];
+    }
+    dispatch({ type: 'DELETE_QUIZ', id: quiz.id });
+    const currentStored = JSON.parse(localStorage.getItem('getquiz_pending_tasks_v2') || '[]');
+    localStorage.setItem('getquiz_pending_tasks_v2', JSON.stringify(currentStored.filter(q => q.id !== quiz.id)));
+
+    // Đẩy parameter cũ qua form
+    setInitialAiConfig(quiz.aiTaskParams);
+    setView(VIEWS.AI_CREATE);
   }, []);
 
-  const filteredQuizzes = useMemo(() =>
-    quizzes.filter(q =>
+  const filteredQuizzes = useMemo(() => {
+    return quizzes.filter(q =>
       q.title.toLowerCase().includes(search.toLowerCase()) ||
       q.description.toLowerCase().includes(search.toLowerCase()) ||
       q.tags.some(t => t.toLowerCase().includes(search.toLowerCase()))
-    ), [quizzes, search]
-  );
+    );
+  }, [quizzes, search]);
+
+  const handleCloseToast = useCallback(() => setToast(null), []);
 
   return (
     <div className="db-root">
+      {/* Global toast */}
+      {toast && (
+        <Toast
+          message={toast.message}
+          type={toast.type}
+          onAction={openDetail}
+          {...toast.options}
+        />
+      )}
+
       {/* Sidebar */}
       <aside className="db-sidebar">
         <Link to="/" className="db-brand" aria-label="Go to homepage">
@@ -93,7 +318,7 @@ export default function Dashboard() {
 
         <nav className="db-nav" aria-label="Dashboard navigation">
           <button
-            className={`db-nav-item${view === VIEWS.HOME || view === VIEWS.DETAIL ? ' active' : ''}`}
+            className={`db-nav-item${view === VIEWS.HOME ? ' active' : ''}`}
             onClick={() => setView(VIEWS.HOME)}
           >
             <LayoutDashboard size={16} />
@@ -114,6 +339,60 @@ export default function Dashboard() {
             <Sparkles size={16} />
             Quiz with AI
           </button>
+
+          {/* Recent Activity — loaded from unified backend logs */}
+          <div className="db-recent-section">
+            <p className="db-recent-title">Recent Activity</p>
+            {recentActivities.length === 0 ? (
+              <p style={{ fontSize: '0.75rem', color: 'var(--text-3)', padding: '0.25rem 0' }}>
+                No recent activity.
+              </p>
+            ) : (
+              <ul className="db-recent-list">
+                {recentActivities.slice(0, 5).map(activity => {
+                  let label = 'Action';
+                  let dotClass = '';
+                  let color = 'var(--text-3)';
+
+                  if (activity.type === 'quiz_created') {
+                    label = 'CREATED';
+                    dotClass = 'db-recent-dot-created';
+                    color = '#4ff8e5'; // cyan color
+                  } else if (activity.type === 'quiz_attempted') {
+                    label = 'ATTEMPTED';
+                    color = '#eab308'; // yellow-500
+                  } else if (activity.type === 'quiz_deleted') {
+                    label = 'DELETED';
+                    color = '#ef4444'; // red-500
+                  }
+
+                  return (
+                    <li key={activity.id}>
+                      <button
+                        className="db-recent-item"
+                        onClick={() => handleActivityClick(activity)}
+                        title={`Open ${activity.quizTitle}`}
+                        style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', padding: 0, textAlign: 'left', font: 'inherit' }}
+                      >
+                        <span className={`db-recent-dot ${dotClass}`} style={{ backgroundColor: dotClass ? undefined : color }} />
+                        <div className="db-recent-info">
+                          <span className="db-recent-label" title={activity.quizTitle}>{activity.quizTitle}</span>
+                          <span className="db-recent-meta">
+                            <span style={{ color, fontWeight: 'bold' }}>{label}</span>
+                            {' · '}{activity.createdAt?.split('T')[0]}
+                          </span>
+                        </div>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            <Link to="/history" className="db-recent-more">View History</Link>
+          </div>
+
+          {/* Quota compact badge in sidebar */}
+          <QuotaSidebarWidget quota={quota} />
         </nav>
 
         <div className="db-sidebar-footer">
@@ -143,7 +422,11 @@ export default function Dashboard() {
             onOpen={openDetail}
             onDelete={handleDelete}
             onCreate={() => setView(VIEWS.CREATE)}
-            onAiCreate={() => setView(VIEWS.AI_CREATE)}
+            onAiCreate={() => { setInitialAiConfig(null); setView(VIEWS.AI_CREATE); }}
+            loading={loadingQuizzes}
+            onCancelAiTask={handleCancelAiTask}
+            onEditAiTask={handleEditAiTask}
+            onRetryAiTask={handleStartAiTask}
           />
         )}
         {view === VIEWS.CREATE && (
@@ -154,15 +437,11 @@ export default function Dashboard() {
         )}
         {view === VIEWS.AI_CREATE && (
           <AiCreateQuiz
-            onSave={handleAiCreate}
-            onCancel={() => setView(VIEWS.HOME)}
-          />
-        )}
-        {view === VIEWS.DETAIL && selectedQuiz && (
-          <QuizDetail
-            quiz={selectedQuiz}
-            onBack={() => setView(VIEWS.HOME)}
-            onDelete={() => handleDelete(selectedQuiz.id)}
+            userId={userId}
+            initialConfig={initialAiConfig}
+            quota={quota}
+            onSave={(prompt, numQ, mix, file) => { setInitialAiConfig(null); handleStartAiTask(prompt, numQ, mix, null, file); }}
+            onCancel={() => { setInitialAiConfig(null); setView(VIEWS.HOME); }}
           />
         )}
       </main>
@@ -171,7 +450,7 @@ export default function Dashboard() {
 }
 
 // ── QuizList View ──────────────────────────────────────────────
-function QuizList({ quizzes, allCount, search, onSearch, onOpen, onDelete, onCreate, onAiCreate }) {
+function QuizList({ quizzes, allCount, search, onSearch, onOpen, onDelete, onCreate, onAiCreate, loading, onCancelAiTask, onEditAiTask, onRetryAiTask }) {
   return (
     <div className="db-view">
       <header className="db-view-header">
@@ -217,12 +496,17 @@ function QuizList({ quizzes, allCount, search, onSearch, onOpen, onDelete, onCre
       </div>
 
       {/* Quiz cards */}
-      {quizzes.length === 0 ? (
+      {loading ? (
+        <div className="db-empty">
+          <Loader2 size={32} className="spin" style={{ color: 'var(--accent-2)', opacity: 0.7 }} />
+          <p className="db-empty-msg">Loading your quizzes…</p>
+        </div>
+      ) : quizzes.length === 0 ? (
         <EmptyState message={search ? 'No quizzes match your search.' : 'No quizzes yet. Create your first one!'} onAction={!search ? onCreate : null} />
       ) : (
         <div className="db-quiz-grid">
           {quizzes.map(quiz => (
-            <QuizCard key={quiz.id} quiz={quiz} onOpen={onOpen} onDelete={onDelete} />
+            <QuizCard key={quiz.id} quiz={quiz} onOpen={onOpen} onDelete={onDelete} onCancelAiTask={onCancelAiTask} onEditAiTask={onEditAiTask} onRetryAiTask={onRetryAiTask} />
           ))}
         </div>
       )}
@@ -242,9 +526,63 @@ function StatCard({ icon, label, value, color }) {
   );
 }
 
-function QuizCard({ quiz, onOpen, onDelete }) {
+function QuizCard({ quiz, onOpen, onDelete, onCancelAiTask, onEditAiTask, onRetryAiTask }) {
+  // ── [Thêm mới] Hiển thị Card Skeleton cho trạng thái Loading / Failed
+  // Description: Khi quiz đang chạy background task hoặc bị lỗi, hiển thị UI riêng biệt.
+  // Input: quiz (object) từ vòng lặp state, onCancelAiTask, onEditAiTask, onRetryAiTask (của list đẩy xuống)
+  // Output: Trả về JSX/UI dành riêng cho background task
+  if (quiz.isLoading || quiz.isFailed) {
+    return (
+      <article className="db-quiz-card db-quiz-card-loading" style={{ borderStyle: 'dashed' }}>
+        <div className="db-quiz-card-indicator" aria-hidden="true" style={{ background: quiz.isFailed ? 'var(--error-1)' : 'var(--accent-1)' }} />
+        <header className="db-quiz-card-header">
+          <h2 className="db-quiz-card-title">{quiz.title}</h2>
+          <button
+            className="db-quiz-card-delete"
+            style={{ color: 'var(--text-3)', cursor: 'default' }}
+            disabled
+          >
+            <Trash2 size={14} />
+          </button>
+        </header>
+        <p className="db-quiz-card-desc" style={{ opacity: 0.8 }}>{quiz.description}</p>
+
+        <div className="db-quiz-card-meta" style={{ marginTop: '1rem', color: quiz.isFailed ? 'var(--error-1)' : 'var(--accent-2)' }}>
+          {quiz.isFailed ? (
+            <><AlertCircle size={15} /> <span style={{ fontWeight: 500 }}>Generation interrupted</span></>
+          ) : (
+            <><Loader2 size={15} className="spin" /> <span style={{ fontWeight: 500 }}>Generating...</span></>
+          )}
+        </div>
+
+        <div style={{ marginTop: '1rem', display: 'flex', gap: '0.5rem' }}>
+          {quiz.isFailed ? (
+            <>
+              <button className="btn btn-sm" onClick={() => onRetryAiTask(quiz.aiTaskParams.prompt, quiz.aiTaskParams.numQ, quiz.aiTaskParams.mix, quiz.id)} style={{ flex: 1, display: 'flex', justifyContent: 'center', gap: '0.4em' }}>
+                <RotateCcw size={13} /> Reload
+              </button>
+              <button className="btn btn-sm db-delete-btn" onClick={() => onCancelAiTask(quiz.id)} style={{ flex: 1, display: 'flex', justifyContent: 'center', gap: '0.4em' }}>
+                <X size={13} /> Cancel
+              </button>
+            </>
+          ) : (
+            <>
+              <button className="btn btn-sm" onClick={() => onEditAiTask(quiz)} style={{ flex: 1, display: 'flex', justifyContent: 'center', gap: '0.4em' }}>
+                <Edit3 size={13} /> Edit
+              </button>
+              <button className="btn btn-sm db-delete-btn" onClick={() => onCancelAiTask(quiz.id)} style={{ flex: 1, display: 'flex', justifyContent: 'center', gap: '0.4em' }}>
+                <X size={13} /> Cancel
+              </button>
+            </>
+          )}
+        </div>
+      </article>
+    );
+  }
+
   const mcqs = quiz.questions.filter(q => q.type === 'mcq').length;
   const tfs = quiz.questions.filter(q => q.type === 'tf').length;
+  const hasAttempts = quiz.attemptCount > 0;
 
   return (
     <article className="db-quiz-card">
@@ -277,6 +615,25 @@ function QuizCard({ quiz, onOpen, onDelete }) {
         </span>
       </div>
 
+      {/* Attempt stats row — only shown once at least one attempt exists */}
+      {hasAttempts && (
+        <div className="db-attempt-stats">
+          <span className="db-attempt-chip">
+            <RotateCcw size={10} /> {quiz.attemptCount} attempt{quiz.attemptCount !== 1 ? 's' : ''}
+          </span>
+          {quiz.bestScore != null && (
+            <span className="db-attempt-chip db-attempt-best">
+              <Trophy size={10} /> Best: {quiz.bestScore}%
+            </span>
+          )}
+          {quiz.lastAttempted && (
+            <span className="db-attempt-chip db-attempt-last">
+              <Clock size={10} /> Last: {quiz.lastAttempted}
+            </span>
+          )}
+        </div>
+      )}
+
       <button className="db-quiz-card-open" onClick={() => onOpen(quiz)}>
         View Questions <ChevronRight size={14} />
       </button>
@@ -298,102 +655,11 @@ function EmptyState({ message, onAction }) {
   );
 }
 
-// ── QuizDetail View ────────────────────────────────────────────
-function QuizDetail({ quiz, onBack, onDelete }) {
-  const mcqs = quiz.questions.filter(q => q.type === 'mcq').length;
-  const tfs = quiz.questions.filter(q => q.type === 'tf').length;
-  const navigate = useNavigate();
 
-  return (
-    <div className="db-view">
-      <header className="db-view-header">
-        <div>
-          <button className="db-back-btn" onClick={onBack}>
-            <ArrowLeft size={14} /> All Quizzes
-          </button>
-          <h1 className="db-view-title">{quiz.title}</h1>
-          <p className="db-view-sub">{quiz.description}</p>
-        </div>
-        <div className="res-actions" style={{ flexDirection: 'row', justifyContent: 'flex-start', gap: '0.75rem', marginTop: '0.5rem' }}>
-          <button
-            className="btn btn-primary"
-            onClick={() => navigate(`/quiz/${quiz.id}`, { state: { quiz } })}
-            id={`quiz-start-btn-${quiz.id}`}
-            style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}
-          >
-            Start Quiz
-          </button>
-          <button
-            className="btn db-delete-btn"
-            onClick={onDelete}
-            aria-label="Delete quiz"
-            style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}
-          >
-            <Trash2 size={14} /> Delete Quiz
-          </button>
-        </div>
-      </header>
-
-      <div className="db-detail-meta">
-        <span className="db-meta-chip db-meta-mcq"><CheckSquare size={12} /> {mcqs} MCQ</span>
-        <span className="db-meta-chip db-meta-tf"><ToggleLeft size={12} /> {tfs} T/F</span>
-        <span className="db-quiz-card-date"><Clock size={12} /> {quiz.createdAt}</span>
-        {quiz.tags.map(t => <span key={t} className="db-tag">{t}</span>)}
-      </div>
-
-      <div className="db-questions-list">
-        {quiz.questions.map((q, idx) => (
-          <QuestionCard key={q.id} question={q} index={idx} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function QuestionCard({ question, index }) {
-  const [expanded, setExpanded] = useState(false);
-
-  return (
-    <div className={`db-question-card${expanded ? ' expanded' : ''}`}>
-      <button className="db-question-header" onClick={() => setExpanded(e => !e)}>
-        <span className="db-question-num">Q{index + 1}</span>
-        <span className={`db-question-type-badge db-type-${question.type}`}>
-          {question.type === 'mcq' ? <CheckSquare size={11} /> : <ToggleLeft size={11} />}
-          {question.type === 'mcq' ? 'MCQ' : 'True / False'}
-        </span>
-        <span className="db-question-text">{question.text}</span>
-        <ChevronDown size={15} className={`db-question-chevron${expanded ? ' rotated' : ''}`} />
-      </button>
-
-      {expanded && (
-        <div className="db-question-body">
-          {question.type === 'mcq' ? (
-            <ul className="db-options-list">
-              {question.options.map((opt, i) => (
-                <li key={i} className={`db-option${i === question.correctIndex ? ' correct' : ''}`}>
-                  <span className="db-option-letter">{String.fromCharCode(65 + i)}</span>
-                  {opt}
-                  {i === question.correctIndex && <Check size={13} className="db-option-check" />}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <div className="db-tf-answer">
-              <span className={`db-tf-badge db-tf-${question.correct ? 'true' : 'false'}`}>
-                {question.correct ? <Check size={14} /> : <X size={14} />}
-                Correct answer: <strong>{question.correct ? 'True' : 'False'}</strong>
-              </span>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ── CreateQuiz View ────────────────────────────────────────────
-const EMPTY_MCQ = () => ({ id: Date.now() + Math.random(), type: 'mcq', text: '', options: ['', '', '', ''], correctIndex: 0 });
-const EMPTY_TF = () => ({ id: Date.now() + Math.random(), type: 'tf', text: '', correct: true });
+const EMPTY_MCQ = () => ({ id: Date.now() + Math.random(), type: 'mcq', text: '', options: ['', '', '', ''], correctIndex: 0, explanation: '' });
+const EMPTY_TF = () => ({ id: Date.now() + Math.random(), type: 'tf', text: '', correct: true, explanation: '' });
 
 function CreateQuiz({ onSave, onCancel }) {
   const [title, setTitle] = useState('');
@@ -568,6 +834,18 @@ function MCQEditor({ q, idx, errors, onUpdate, onOption, onRemove }) {
         {errors[`q${idx}_text`] && <p className="db-error">{errors[`q${idx}_text`]}</p>}
       </div>
 
+      <div className="db-form-field">
+        <label className="db-label" htmlFor={`q-exp-${q.id}`}>Explanation (Optional)</label>
+        <textarea
+          id={`q-exp-${q.id}`}
+          className="db-input db-textarea"
+          value={q.explanation || ''}
+          onChange={e => onUpdate(q.id, { explanation: e.target.value })}
+          placeholder="Explain why the correct answer is right…"
+          rows={1}
+        />
+      </div>
+
       <div className="db-options-editor">
         <p className="db-label">Options — click the circle to mark correct answer</p>
         {q.options.map((opt, oi) => (
@@ -617,6 +895,18 @@ function TFEditor({ q, idx, errors, onUpdate, onRemove }) {
         {errors[`q${idx}_text`] && <p className="db-error">{errors[`q${idx}_text`]}</p>}
       </div>
 
+      <div className="db-form-field">
+        <label className="db-label" htmlFor={`q-tf-exp-${q.id}`}>Explanation (Optional)</label>
+        <textarea
+          id={`q-tf-exp-${q.id}`}
+          className="db-input db-textarea"
+          value={q.explanation || ''}
+          onChange={e => onUpdate(q.id, { explanation: e.target.value })}
+          placeholder="Explain why this statement is true or false…"
+          rows={1}
+        />
+      </div>
+
       <div className="db-tf-toggle-row">
         <p className="db-label">Correct Answer</p>
         <div className="db-tf-buttons">
@@ -640,53 +930,99 @@ function TFEditor({ q, idx, errors, onUpdate, onRemove }) {
 
 // ── AiCreateQuiz View ──────────────────────────────────────────
 
-function AiCreateQuiz({ onSave, onCancel }) {
-  const [prompt, setPrompt] = useState('');
-  const [numQ, setNumQ] = useState('5');
-  const [mix, setMix] = useState('mixed');
+// Description: Form cấu hình tạo AI — hai panel: free-prompt và RAG document context
+// Input: initialConfig (nếu có để phục hồi Edit), userId (string), quota object
+function AiCreateQuiz({ userId = 'anonymous', initialConfig, quota, onSave, onCancel }) {
+  // Nếu có initialConfig (do người dùng bấm Edit), các trường sẽ được điền tự động
+  const [prompt, setPrompt] = useState(initialConfig?.prompt || '');
+  const [numQ, setNumQ] = useState(initialConfig?.numQ || '5');
+  const [mix, setMix] = useState(initialConfig?.mix || 'mixed');
   const [promptError, setPromptError] = useState('');
-  const [loadingState, setLoadingState] = useState('idle');
+  const [file, setFile] = useState(null);
+  const [dragOver, setDragOver] = useState(false);
+  // RAG panel state
+  const [ragPrompt, setRagPrompt] = useState('');
+  const [ragTopics, setRagTopics] = useState(null);   // null = not fetched, [] = empty
+  const [selectedTopic, setSelectedTopic] = useState(null); // { title, description } | null
+  const [suggestingTopics, setSuggestingTopics] = useState(false);
+  const [suggestError, setSuggestError] = useState('');
+  const fileInputRef = useRef(null);
+  const ACCEPTED_TYPES = '.md,.pdf,.txt,.doc,.docx,.ppt,.pptx';
 
-  const handleGenerate = async () => {
+  const { plan, used, limit, remaining, canGenerate, setPlan } = quota || {};
+
+  const handleFileChange = (e) => {
+    const selected = e.target.files?.[0] ?? null;
+    setFile(selected);
+  };
+
+  const clearFile = () => {
+    setFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    // Reset all RAG-related state when file is removed
+    setRagPrompt('');
+    setRagTopics(null);
+    setSelectedTopic(null);
+    setSuggestError('');
+  };
+
+  // Drag-and-drop handlers for the RAG dropzone
+  const handleDragOver = (e) => { e.preventDefault(); setDragOver(true); };
+  const handleDragLeave = () => setDragOver(false);
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    const dropped = e.dataTransfer.files?.[0] ?? null;
+    if (dropped) setFile(dropped);
+  };
+
+  // Description: Handle Generate Quiz button (free-prompt path)
+  // Input: event from button click
+  // Output: Gọi onSave để khởi tạo Background task tại Dashboard
+  const handleGenerate = () => {
+    if (!canGenerate) {
+      setPromptError('Daily limit reached. Please upgrade your plan to continue.');
+      return;
+    }
     if (!prompt.trim()) {
       setPromptError('Please describe a topic to generate questions about.');
       return;
     }
     setPromptError('');
-    
-    try {
-      setLoadingState('checking');
-      
-      // Delay slightly (UX Optional) before switching text
-      setTimeout(() => {
-        setLoadingState(prev => prev === 'checking' ? 'generating' : prev);
-      }, 1500);
+    onSave(prompt, numQ, mix, null); // file intentionally null — free-prompt path
+  };
 
-      // Call real API endpoint
-      const res = await generateQuiz(prompt, parseInt(numQ, 10));
-
-      if (!res.ok) {
-        setLoadingState('idle');
-        alert("Failed: " + res.error);
-        return;
-      }
-
-      setLoadingState('idle');
-      // Pass the fully structured JSON quiz payload into Dashboard's library
-      onSave(res.data.data);
-
-    } catch (err) {
-      setLoadingState('idle');
-      alert("Server connection error. Please ensure FastAPI is running.");
+  // Description: Fetch AI-suggested topics from the uploaded document
+  const handleSuggestTopics = async () => {
+    setSuggestingTopics(true);
+    setSuggestError('');
+    setRagTopics(null);
+    setSelectedTopic(null);
+    const res = await suggestTopics(file);
+    setSuggestingTopics(false);
+    if (res.ok && Array.isArray(res.data?.topics)) {
+      setRagTopics(res.data.topics);
+    } else {
+      setSuggestError(res.error || 'Could not analyse the document. Please try again.');
     }
   };
 
+  // Description: Generate quiz from RAG panel (uses selectedTopic title OR ragPrompt)
+  // Always sends file to the backend for context grounding
+  const handleRagGenerate = () => {
+    const topic = selectedTopic ? selectedTopic.title : ragPrompt.trim();
+    onSave(topic, numQ, mix, file);
+  };
+
+  // Options unlock condition for the RAG panel
+  const ragOptionsActive = !!file && (ragPrompt.trim().length > 0 || selectedTopic !== null);
+
   return (
     <div className="db-view">
-      <LoadingOverlay loadingState={loadingState} />
+      {/* Background task pattern, không cần Loading Overlay full màn hình nữa */}
       <header className="db-view-header">
         <div>
-          <button className="db-back-btn" onClick={onCancel} disabled={loadingState !== 'idle'}>
+          <button className="db-back-btn" onClick={onCancel}>
             <ArrowLeft size={14} /> Cancel
           </button>
           <h1 className="db-view-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
@@ -698,6 +1034,10 @@ function AiCreateQuiz({ onSave, onCancel }) {
         </div>
       </header>
 
+      {/* Quota panel */}
+      {quota && <QuotaPanel plan={plan} used={used} limit={limit} remaining={remaining} canGenerate={canGenerate} setPlan={setPlan} />}
+
+      {/* ── Panel 1: Free-context prompt ── */}
       <section className="db-form-section">
         <h2 className="db-form-section-title db-ai-section-title">Topic &amp; Prompt</h2>
         <div className="db-form-field" style={{ marginBottom: '1.25rem' }}>
@@ -712,7 +1052,6 @@ function AiCreateQuiz({ onSave, onCancel }) {
               onChange={e => { setPrompt(e.target.value); setPromptError(''); }}
               placeholder="e.g. World War II history, React hooks, photosynthesis, the French Revolution…"
               rows={3}
-              disabled={loadingState !== 'idle'}
             />
           </div>
           {promptError && <p className="db-error" style={{ marginTop: '0.375rem' }}>{promptError}</p>}
@@ -722,7 +1061,7 @@ function AiCreateQuiz({ onSave, onCancel }) {
         <div className="db-ai-config-row">
           <div className="db-ai-config-item">
             <label className="db-label" htmlFor="ai-num-q">Number of questions</label>
-            <select id="ai-num-q" className="db-ai-select" value={numQ} onChange={e => setNumQ(e.target.value)} disabled={loadingState !== 'idle'}>
+            <select id="ai-num-q" className="db-ai-select" value={numQ} onChange={e => setNumQ(e.target.value)}>
               <option value="3">3 questions</option>
               <option value="5">5 questions</option>
               <option value="8">8 questions</option>
@@ -731,7 +1070,7 @@ function AiCreateQuiz({ onSave, onCancel }) {
           </div>
           <div className="db-ai-config-item">
             <label className="db-label" htmlFor="ai-mix">Question type</label>
-            <select id="ai-mix" className="db-ai-select" value={mix} onChange={e => setMix(e.target.value)} disabled={loadingState !== 'idle'}>
+            <select id="ai-mix" className="db-ai-select" value={mix} onChange={e => setMix(e.target.value)}>
               <option value="mixed">Mixed (MCQ + T/F)</option>
               <option value="mcq">Multiple Choice only</option>
               <option value="tf">True / False only</option>
@@ -740,11 +1079,370 @@ function AiCreateQuiz({ onSave, onCancel }) {
         </div>
 
         <div style={{ marginTop: '1.75rem' }}>
-          <button className="btn-ai" onClick={handleGenerate} id="ai-generate-btn" disabled={loadingState !== 'idle'}>
+          <button
+            className="btn-ai"
+            onClick={handleGenerate}
+            id="ai-generate-btn"
+            disabled={quota && !canGenerate}
+            style={quota && !canGenerate ? { opacity: 0.45, cursor: 'not-allowed' } : undefined}
+          >
             <Sparkles size={15} /> Generate Quiz
           </button>
         </div>
       </section>
+
+      {/* ── Panel 2: Document Context (RAG) — file upload + interactive features ── */}
+      <section className="db-rag-section">
+        <div className="db-rag-header">
+          <h2 className="db-form-section-title db-ai-section-title" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <BookOpen size={16} style={{ color: '#10c9a3' }} /> Document Context
+          </h2>
+          <span className="db-rag-badge">RAG</span>
+        </div>
+        <p className="db-rag-desc">
+          Upload a document — the AI will ground its questions in your content.
+        </p>
+
+        {/* Drop zone */}
+        <div
+          className={`db-rag-dropzone${dragOver ? ' drag-over' : ''}${file ? ' has-file' : ''}`}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          onClick={() => fileInputRef.current?.click()}
+          role="button"
+          tabIndex={0}
+          aria-label="Upload context file"
+          onKeyDown={e => e.key === 'Enter' && fileInputRef.current?.click()}
+        >
+          <input
+            id="ai-file-upload"
+            ref={fileInputRef}
+            type="file"
+            accept={ACCEPTED_TYPES}
+            onChange={handleFileChange}
+            style={{ display: 'none' }}
+          />
+          {file ? (
+            <div className="db-rag-file-chip">
+              <Check size={14} style={{ color: '#10c9a3', flexShrink: 0 }} />
+              <span className="db-rag-file-name">{file.name}</span>
+              <button
+                className="db-rag-file-clear"
+                onClick={e => { e.stopPropagation(); clearFile(); }}
+                aria-label="Remove file"
+              >
+                <X size={13} />
+              </button>
+            </div>
+          ) : (
+            <div className="db-rag-dropzone-inner">
+              <BookOpen size={28} className="db-rag-dropzone-icon" />
+              <p className="db-rag-dropzone-title">Drop your file here, or <span className="db-rag-browse-link">Browse</span></p>
+              <p className="db-rag-dropzone-hint">.md · .pdf · .txt · .doc · .docx · .ppt · .pptx</p>
+            </div>
+          )}
+        </div>
+
+        {/* ── Interactive area — only shown when a file is loaded ── */}
+        {file && (
+          <div className="db-rag-interactive">
+
+            {/* Context-grounded prompt textarea */}
+            <div className="db-rag-prompt-block">
+              <label className="db-label" htmlFor="rag-prompt">
+                What do you want the quiz to be about?
+                <span className="db-label-hint"> (based on the uploaded document)</span>
+              </label>
+              <textarea
+                id="rag-prompt"
+                className={`db-ai-prompt db-rag-textarea${selectedTopic ? ' db-rag-textarea-blocked' : ''}`}
+                value={ragPrompt}
+                onChange={e => {
+                  setRagPrompt(e.target.value);
+                  // typing into prompt de-selects any chosen topic
+                  if (selectedTopic) setSelectedTopic(null);
+                }}
+                placeholder="e.g. Key concepts from Chapter 3, main causes of the event…"
+                rows={2}
+                disabled={!!selectedTopic}
+              />
+              {selectedTopic && (
+                <p className="db-rag-textarea-hint">
+                  Prompt disabled — a topic is selected below. Deselect it to type freely.
+                </p>
+              )}
+            </div>
+
+            {/* OR divider */}
+            <div className="db-rag-or-divider">
+              <span className="db-rag-or-line" />
+              <span className="db-rag-or-label">or</span>
+              <span className="db-rag-or-line" />
+            </div>
+
+            {/* Suggest Topics button */}
+            <div className="db-rag-suggest-row">
+              <button
+                className={`db-rag-suggest-btn${suggestingTopics ? ' loading' : ''}`}
+                onClick={handleSuggestTopics}
+                disabled={suggestingTopics}
+                id="rag-suggest-btn"
+              >
+                {suggestingTopics ? (
+                  <><Loader2 size={14} className="spin" /> Analysing document…</>
+                ) : ragTopics ? (
+                  <><RefreshCw size={14} /> Regenerate Topics</>
+                ) : (
+                  <><Sparkles size={14} /> Suggest Topics from Document</>
+                )}
+              </button>
+              {suggestError && (
+                <p className="db-error" style={{ marginTop: '0.5rem', fontSize: '0.78rem' }}>{suggestError}</p>
+              )}
+            </div>
+
+            {/* Topic cards */}
+            {ragTopics && ragTopics.length > 0 && (
+              <div className="db-rag-topics-grid">
+                {ragTopics.map((topic, i) => (
+                  <button
+                    key={i}
+                    className={`db-rag-topic-card${selectedTopic?.title === topic.title ? ' selected' : ''}`}
+                    onClick={() => {
+                      // toggle: clicking selected topic deselects it
+                      setSelectedTopic(prev => prev?.title === topic.title ? null : topic);
+                      setRagPrompt(''); // clear free prompt when topic chosen
+                    }}
+                    id={`rag-topic-${i}`}
+                  >
+                    <span className="db-rag-topic-radio">
+                      {selectedTopic?.title === topic.title && <Check size={10} />}
+                    </span>
+                    <span className="db-rag-topic-body">
+                      <span className="db-rag-topic-title">{topic.title}</span>
+                      <span className="db-rag-topic-desc">{topic.description}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {/* Options — unlock when ragOptionsActive */}
+            <div className="db-rag-options-header">
+              <span style={{ fontWeight: 600, fontSize: '0.82rem', color: ragOptionsActive ? 'var(--text-1)' : 'var(--text-2)' }}>Options</span>
+              {!ragOptionsActive && <span className="db-coming-soon-badge">Select a topic or enter a prompt first</span>}
+            </div>
+
+            <div className={ragOptionsActive ? undefined : 'db-rag-options-blocked'}>
+              <div className="db-ai-config-row">
+                <div className="db-ai-config-item">
+                  <label className="db-label" htmlFor="rag-num-q">Number of questions</label>
+                  <select
+                    id="rag-num-q"
+                    className="db-ai-select"
+                    value={numQ}
+                    onChange={e => setNumQ(e.target.value)}
+                    disabled={!ragOptionsActive}
+                  >
+                    <option value="3">3 questions</option>
+                    <option value="5">5 questions</option>
+                    <option value="8">8 questions</option>
+                    <option value="10">10 questions</option>
+                  </select>
+                </div>
+                <div className="db-ai-config-item">
+                  <label className="db-label" htmlFor="rag-mix">Question type</label>
+                  <select
+                    id="rag-mix"
+                    className="db-ai-select"
+                    value={mix}
+                    onChange={e => setMix(e.target.value)}
+                    disabled={!ragOptionsActive}
+                  >
+                    <option value="mixed">Mixed (MCQ + T/F)</option>
+                    <option value="mcq">Multiple Choice only</option>
+                    <option value="tf">True / False only</option>
+                  </select>
+                </div>
+              </div>
+              <div style={{ marginTop: '1.25rem' }}>
+                <button
+                  className="btn-ai"
+                  onClick={handleRagGenerate}
+                  id="rag-generate-btn"
+                  disabled={!ragOptionsActive || (quota && !canGenerate)}
+                  style={!ragOptionsActive || (quota && !canGenerate) ? { opacity: 0.35, cursor: 'not-allowed' } : undefined}
+                >
+                  <Sparkles size={15} /> Generate Quiz
+                </button>
+              </div>
+            </div>
+
+          </div>
+        )}
+
+        {/* Placeholder shown when no file yet — blocked options preview */}
+        {!file && (
+          <>
+            <div className="db-rag-options-header">
+              <span style={{ fontWeight: 600, fontSize: '0.82rem', color: 'var(--text-2)' }}>Options</span>
+              <span className="db-coming-soon-badge">🔒 Upload a file to unlock</span>
+            </div>
+            <div className="db-rag-options-blocked">
+              <div className="db-ai-config-row">
+                <div className="db-ai-config-item">
+                  <label className="db-label" htmlFor="rag-num-q-ph">Number of questions</label>
+                  <select id="rag-num-q-ph" className="db-ai-select" value="5" disabled>
+                    <option value="5">5 questions</option>
+                  </select>
+                </div>
+                <div className="db-ai-config-item">
+                  <label className="db-label" htmlFor="rag-mix-ph">Question type</label>
+                  <select id="rag-mix-ph" className="db-ai-select" value="mixed" disabled>
+                    <option value="mixed">Mixed (MCQ + T/F)</option>
+                  </select>
+                </div>
+              </div>
+              <div style={{ marginTop: '1.25rem' }}>
+                <button className="btn-ai" disabled style={{ opacity: 0.35, cursor: 'not-allowed' }}>
+                  <Sparkles size={15} /> Generate Quiz
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </section>
+    </div>
+  );
+}
+
+// ── QuotaSidebarWidget ────────────────────────────────────────
+// Compact widget shown in the sidebar below Recent Activity.
+function QuotaSidebarWidget({ quota }) {
+  const { plan, used, limit, remaining, canGenerate } = quota;
+  const isUnlimited = limit === Infinity;
+  const pct = isUnlimited ? 100 : Math.min(100, (used / limit) * 100);
+  const isWarn = !isUnlimited && remaining <= Math.ceil(limit * 0.2) && remaining > 0;
+  const isFull = !isUnlimited && !canGenerate;
+
+  const fillClass = isUnlimited
+    ? 'db-quota-bar-fill-inf'
+    : isFull ? 'db-quota-bar-fill-full'
+      : isWarn ? 'db-quota-bar-fill-warn'
+        : 'db-quota-bar-fill-ok';
+
+  const countClass = isFull
+    ? 'db-quota-count db-quota-count-full'
+    : isWarn
+      ? 'db-quota-count db-quota-count-warn'
+      : 'db-quota-count';
+
+  return (
+    <div className="db-quota-sidebar" aria-label="AI generation quota">
+      <div className="db-quota-header">
+        <span className={`db-plan-badge db-plan-badge-${plan}`}>
+          {plan === 'teams' ? '⚡ ' : plan === 'pro' ? '✦ ' : ''}
+          {PLAN_LABELS[plan]}
+        </span>
+        <span className={countClass}>
+          {isUnlimited ? '∞ unlimited' : `${used} / ${limit} today`}
+        </span>
+      </div>
+      <div className="db-quota-bar-wrap" role="progressbar" aria-valuenow={used} aria-valuemax={isUnlimited ? 1 : limit}>
+        <div
+          className={`db-quota-bar-fill ${fillClass}`}
+          style={{ width: `${isUnlimited ? 100 : pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ── QuotaPanel ────────────────────────────────────────────────
+// Full panel shown inside the AI Create view with plan switcher.
+function QuotaPanel({ plan, used, limit, remaining, canGenerate, setPlan }) {
+  const isUnlimited = limit === Infinity;
+  const pct = isUnlimited ? 100 : Math.min(100, (used / limit) * 100);
+  const isWarn = !isUnlimited && remaining <= Math.ceil(limit * 0.2) && remaining > 0;
+  const isFull = !isUnlimited && !canGenerate;
+
+  const fillClass = isUnlimited
+    ? 'db-quota-bar-fill-inf'
+    : isFull ? 'db-quota-bar-fill-full'
+      : isWarn ? 'db-quota-bar-fill-warn'
+        : 'db-quota-bar-fill-ok';
+
+  const valueColor = isFull ? '#ff7070' : isWarn ? '#ffbe3d' : undefined;
+
+  return (
+    <div className="db-quota-panel" aria-label="Daily AI quiz generation quota">
+      {/* Header row: label + plan badge */}
+      <div className="db-quota-panel-row">
+        <span className="db-quota-panel-label">
+          <Flame size={13} style={{ color: '#ffbe3d' }} />
+          AI Generation Quota
+        </span>
+        <span className={`db-plan-badge db-plan-badge-${plan}`}>
+          {plan === 'teams' ? '⚡ ' : plan === 'pro' ? '✦ ' : ''}
+          {PLAN_LABELS[plan]}
+        </span>
+      </div>
+
+      {/* Bar + counter */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: 'var(--text-3)' }}>
+            Today's usage
+          </span>
+          <span style={{ fontSize: '0.72rem', fontFamily: 'var(--font-mono)', color: valueColor || 'var(--text-2)', fontWeight: 600 }}>
+            {isUnlimited
+              ? `${used} used · Unlimited`
+              : `${used} / ${limit} quizzes`}
+          </span>
+        </div>
+        <div className="db-quota-bar-wrap-lg" role="progressbar" aria-valuenow={used} aria-valuemax={isUnlimited ? 1 : limit}>
+          <div
+            className={`db-quota-bar-fill-lg db-quota-bar-fill ${fillClass}`}
+            style={{ width: `${isUnlimited ? 40 : pct}%` }}
+          />
+        </div>
+        {!isUnlimited && (
+          <span style={{ fontSize: '0.68rem', fontFamily: 'var(--font-mono)', color: valueColor || 'var(--text-3)' }}>
+            {canGenerate
+              ? `${remaining} generation${remaining !== 1 ? 's' : ''} remaining today`
+              : 'Limit reached — resets at midnight or upgrade your plan'}
+          </span>
+        )}
+      </div>
+
+      {/* Limit-reached banner */}
+      {isFull && (
+        <div className="db-quota-limit-banner" role="alert">
+          <AlertCircle size={15} />
+          Daily limit reached for the {PLAN_LABELS[plan]} plan.
+          <button className="db-quota-upgrade-link" onClick={() => document.getElementById('pricing')?.scrollIntoView?.({ behavior: 'smooth' })}>
+            Upgrade plan →
+          </button>
+        </div>
+      )}
+
+      {/* Demo plan switcher — lets user test different plan tiers */}
+      <div className="db-plan-toggle-row" aria-label="Switch plan (demo)">
+        <label>Plan (demo):</label>
+        {['free', 'pro', 'teams'].map(p => (
+          <button
+            key={p}
+            className={`db-plan-btn${plan === p ? ` db-plan-btn-active-${p}` : ''}`}
+            onClick={() => setPlan(p)}
+            aria-pressed={plan === p}
+          >
+            {p === 'free' ? `Free · ${PLAN_LIMITS.free}/day`
+              : p === 'pro' ? `Pro · ${PLAN_LIMITS.pro}/day`
+                : 'Teams · ∞'}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
